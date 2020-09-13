@@ -56,14 +56,16 @@ impl fmt::Display for MeasurementUnit {
 
 #[cfg(test)]
 mod measurement_unit_tests {
+    use std::convert::TryFrom;
+
     use bson::Bson;
 
     use crate::model::measurement_unit::{MeasurementUnit,
-                                         STR_KILOGRAMM,
-                                         STR_PACK,
-                                         STR_MILLILITER,
                                          STR_GRAMM,
+                                         STR_KILOGRAMM,
                                          STR_LITER,
+                                         STR_MILLILITER,
+                                         STR_PACK,
                                          STR_PIECE};
 
     #[test]
@@ -74,6 +76,20 @@ mod measurement_unit_tests {
         assert_eq!(Bson::from(MeasurementUnit::Liter).as_str().unwrap(), STR_LITER);
         assert_eq!(Bson::from(MeasurementUnit::Piece).as_str().unwrap(), STR_PIECE);
         assert_eq!(Bson::from(MeasurementUnit::Pack).as_str().unwrap(), STR_PACK);
+    }
+
+
+    #[test]
+    fn string_to_measurement_unit_test() {
+        assert_eq!(MeasurementUnit::try_from(STR_KILOGRAMM).unwrap(), MeasurementUnit::Kilogramm);
+        assert_eq!(MeasurementUnit::try_from(STR_GRAMM).unwrap(), MeasurementUnit::Gramm);
+        assert_eq!(MeasurementUnit::try_from(STR_MILLILITER).unwrap(), MeasurementUnit::Milliliter);
+        assert_eq!(MeasurementUnit::try_from(STR_LITER).unwrap(), MeasurementUnit::Liter);
+        assert_eq!(MeasurementUnit::try_from(STR_PIECE).unwrap(), MeasurementUnit::Piece);
+        assert_eq!(MeasurementUnit::try_from(STR_PACK).unwrap(), MeasurementUnit::Pack);
+        assert_eq!(MeasurementUnit::try_from("kilogramm").is_err(), true);
+        assert_eq!(MeasurementUnit::try_from("grammm").is_err(), true);
+        assert_eq!(MeasurementUnit::try_from("").is_err(), true);
     }
 }
 

@@ -2,7 +2,6 @@ use std::convert::TryFrom;
 
 use bson::{Bson, Document};
 use chrono::{DateTime, Utc};
-use futures_util::TryFutureExt;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -98,7 +97,6 @@ impl From<Recipe> for Document {
 }
 
 impl Recipe {
-
     fn extract_difficulty(doc: &Document) -> Result<Difficulty, RecipeFormatError> {
         doc.get_str(JSON_ATTR_DIFFICULTY)
             .map(Difficulty::try_from)
@@ -145,7 +143,7 @@ impl Recipe {
 
     fn extract_default_servings(doc: &Document) -> Result<u32, RecipeFormatError> {
         doc.get_i32(JSON_ATTR_DEFAULT_SERVINGS)
-            .map(|x| x as u32)
+            .map(|x| if x < 1 { 1 } else { x as u32 })
             .map_err(|_| RecipeFormatError::from("Error getting default_servings from document"))
     }
 
@@ -185,7 +183,7 @@ impl Recipe {
 
     fn extract_cooking_time(doc: &Document) -> Result<u32, RecipeFormatError> {
         doc.get_i32(JSON_ATTR_COOKING_TIME)
-            .map(|x| x as u32)
+            .map(|x| if x < 0 { 0 } else { x as u32 })
             .map_err(|_| RecipeFormatError::from("Error getting cooking timefrom document"))
     }
 
@@ -386,7 +384,7 @@ mod recipe_tests {
 
         doc.insert(JSON_ATTR_IMAGE, Bson::Null);
         let result = Recipe::extract_image(&doc);
-        assert_eq!(result.unwrap().is_some(), true);
+        assert_eq!(result.unwrap().is_none(), true);
 
         doc.insert(JSON_ATTR_IMAGE, "image");
         let result = Recipe::extract_image(&doc);
@@ -395,6 +393,10 @@ mod recipe_tests {
         doc.insert(JSON_ATTR_IMAGE, "");
         let result = Recipe::extract_image(&doc);
         assert_eq!(result.unwrap().is_some(), true);
+
+        doc.remove(JSON_ATTR_IMAGE);
+        let result = Recipe::extract_image(&doc);
+        assert_eq!(result.is_err(), true);
     }
 
     #[test]
@@ -426,6 +428,11 @@ mod recipe_tests {
         let result = Recipe::extract_default_servings(&doc);
         assert_eq!(result.is_ok(), true);
 
+        doc.insert(JSON_ATTR_DEFAULT_SERVINGS, 0);
+        let result = Recipe::extract_default_servings(&doc);
+        assert_eq!(result.is_ok(), true);
+        assert_eq!(result.unwrap(), 1);
+
         doc.insert(JSON_ATTR_DEFAULT_SERVINGS, 2);
         let result = Recipe::extract_default_servings(&doc);
         assert_eq!(result.is_ok(), true);
@@ -444,7 +451,8 @@ mod recipe_tests {
 
         doc.insert(JSON_ATTR_DEFAULT_SERVINGS, -1);
         let result = Recipe::extract_default_servings(&doc);
-        assert_eq!(result.is_err(), true);
+        assert_eq!(result.is_ok(), true);
+        assert_eq!(result.unwrap(), 1);
     }
 
     #[test]
@@ -550,7 +558,8 @@ mod recipe_tests {
 
         doc.insert(JSON_ATTR_COOKING_TIME, -1);
         let result = Recipe::extract_cooking_time(&doc);
-        assert_eq!(result.is_err(), true);
+        assert_eq!(result.is_ok(), true);
+        assert_eq!(result.unwrap(), 0);
     }
 
     #[test]

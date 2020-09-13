@@ -94,19 +94,46 @@ mod ingredients_tests {
 
     #[test]
     fn from_bson_to_ingredient_test() {
-        let doc = doc! {
+        let ingredient = Ingredient::try_from(Bson::Document(doc! {
             "id": "0",
             "amount": 1000,
             "title": "Bread",
             "measurementUnit": "Kilogramm"
-        };
-        let bson = Bson::Document(doc);
-        let ingredient = Ingredient::try_from(bson).unwrap();
+        })).unwrap();
         assert_eq!(ingredient.title, "Bread");
         assert_eq!(ingredient.amount, 1000);
         assert_eq!(ingredient.measurement_unit, MeasurementUnit::Kilogramm);
         assert_eq!(ingredient.id, "0");
     }
+
+
+    #[test]
+    fn from_wrong_bson_to_ingredient_test() {
+        let ingredient = Ingredient::try_from(Bson::Document(
+            doc! { "id": null,"amount": 1000,"title": "Bread","measurementUnit": "Kilogramm" }));
+        assert_eq!(ingredient.is_err(), true);
+
+        let ingredient = Ingredient::try_from(Bson::Document(
+            doc! { "id": null,"amount": 1000,"measurementUnit": "Kilogramm" }));
+        assert_eq!(ingredient.is_err(), true);
+
+        let ingredient = Ingredient::try_from(Bson::Document(
+            doc! { "id": null,"amount": 1000, "title": "john" ,"measurementUnit": "Kilogramm" }));
+        assert_eq!(ingredient.is_err(), true);
+
+        let ingredient = Ingredient::try_from(Bson::Document(
+            doc! { "id": null,"amount": 1000,"measurementUnit": "Kilogramm" }));
+        assert_eq!(ingredient.is_err(), true);
+
+        let ingredient = Ingredient::try_from(Bson::Document(
+            doc! { "id": null,"amount": 1000 }));
+        assert_eq!(ingredient.is_err(), true);
+
+        let ingredient = Ingredient::try_from(Bson::Document(
+            doc! { "id": null,"amount": 1000 "measurementUnit": "wrong" }));
+        assert_eq!(ingredient.is_err(), true);
+    }
+
 
     #[test]
     fn from_ingredient_to_bson_test() {

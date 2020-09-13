@@ -5,8 +5,6 @@ use actix_web::web::{Bytes, Json, Query};
 use bson::Document;
 use futures_util::StreamExt;
 use mongodb::{Cursor, Database};
-use mongodb::error::Error;
-use mongodb::options::FindOptions;
 
 use crate::{AppState, dao};
 use crate::pagination::Pagination;
@@ -30,8 +28,6 @@ pub async fn get_recipes(params: Query<Pagination>, data: web::Data<AppState>) -
 #[cfg(test)]
 mod tests {
     use std::convert::TryInto;
-    use std::time::SystemTime;
-
     use actix_web::{http};
     use actix_web::web::{Data, Json, Query};
     use bson::{Bson, Document};
