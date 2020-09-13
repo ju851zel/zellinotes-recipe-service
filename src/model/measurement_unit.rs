@@ -3,7 +3,6 @@ use std::fmt;
 use std::fmt::Formatter;
 
 use bson::Bson;
-use futures_util::core_reexport::fmt::Display;
 use serde::Deserialize;
 use serde::Serialize;
 

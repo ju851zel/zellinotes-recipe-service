@@ -24,6 +24,7 @@ const JSON_ATTR_DEFAULT_SERVINGS: &str = "defaultServings";
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Recipe {
+    #[serde(skip_deserializing)]
     #[serde(alias = "_id")]
     pub _id: String,
     #[serde(rename = "cookingTimeInMinutes")]
@@ -112,7 +113,7 @@ impl Recipe {
 
     fn extract_tags(doc: &Document) -> Result<Vec<String>, RecipeFormatError> {
         doc.get_array(JSON_ATTR_TAGS)
-            .map_err(|e| RecipeFormatError::from("Error getting tag from document"))
+            .map_err(|_| RecipeFormatError::from("Error getting tag from document"))
             .map(|tags| {
                 tags.into_iter()
                     .map(|f| f.as_str().map(String::from))
@@ -133,7 +134,7 @@ impl Recipe {
 
     fn extract_instructions(doc: &Document) -> Result<Vec<String>, RecipeFormatError> {
         doc.get_array(JSON_ATTR_INSTRUCTIONS)
-            .map_err(|e| RecipeFormatError::from("Error getting instructions from document"))
+            .map_err(|_| RecipeFormatError::from("Error getting instructions from document"))
             .map(|instructions| instructions.into_iter()
                 .map(|instruction| instruction.as_str().map(String::from))
                 .collect::<Option<Vec<String>>>()
@@ -167,7 +168,7 @@ impl Recipe {
 
     fn extract_ingredients(doc: &Document) -> Result<Vec<Ingredient>, RecipeFormatError> {
         doc.get_array(JSON_ATTR_INGREDIENTS)
-            .map_err(|e| RecipeFormatError::from("Error getting ingredients from document"))
+            .map_err(|_| RecipeFormatError::from("Error getting ingredients from document"))
             .map(|ingredients| ingredients.into_iter()
                 .map(|ing| Ingredient::try_from(ing.clone())
                     .map_err(|_| RecipeFormatError::from("")))

@@ -43,7 +43,7 @@ impl From<Difficulty> for Bson {
 #[cfg(test)]
 mod difficulty_tests {
     use crate::model::difficulty::Difficulty;
-    use std::convert::{TryInto, TryFrom};
+    use std::convert::{ TryFrom};
     use bson::Bson;
 
     #[test]

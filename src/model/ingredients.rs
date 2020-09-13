@@ -1,4 +1,4 @@
-use std::convert::{TryFrom, TryInto};
+use std::convert::{TryFrom};
 
 use bson::{Bson, Document};
 use serde::Deserialize;
@@ -130,7 +130,7 @@ mod ingredients_tests {
         assert_eq!(ingredient.is_err(), true);
 
         let ingredient = Ingredient::try_from(Bson::Document(
-            doc! { "id": null,"amount": 1000 "measurementUnit": "wrong" }));
+            doc! { "id": null,"amount": 1000, "measurementUnit": "wrong" }));
         assert_eq!(ingredient.is_err(), true);
     }
 

@@ -37,7 +37,7 @@ async fn main() -> std::io::Result<()> {
                 web::resource("/recipes")
                     .name("recipes")
                     .route(web::get().to(recipe_routes::get_recipes))
-                    .route(web::post().to(recipe_routes::add_recipe))
+                    .route(web::post().to(recipe_routes::add_one_recipe))
             )
         // .route("/recipes", web::get().to(get_recipes))
     })
