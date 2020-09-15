@@ -15,7 +15,7 @@ const STR_LITER: &str = "Liter";
 const STR_PIECE: &str = "Piece";
 const STR_PACK: &str = "Pack";
 
-#[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Clone)]
 pub enum MeasurementUnit {
     Kilogramm,
     Gramm,

@@ -13,7 +13,7 @@ const JSON_ATTR_AMOUNT: &str = "amount";
 const JSON_ATTR_MEASUREMENT_UNIT: &str = "measurementUnit";
 
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
 pub struct Ingredient {
     pub id: String,
     pub amount: i32,

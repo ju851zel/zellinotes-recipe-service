@@ -22,7 +22,7 @@ const JSON_ATTR_IMAGE: &str = "image";
 const JSON_ATTR_INSTRUCTIONS: &str = "instructions";
 const JSON_ATTR_DEFAULT_SERVINGS: &str = "defaultServings";
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug,  Clone, Eq, PartialEq)]
 pub struct Recipe {
     #[serde(skip_deserializing)]
     #[serde(alias = "_id")]

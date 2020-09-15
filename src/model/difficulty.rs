@@ -8,7 +8,7 @@ use serde::Serialize;
 
 use crate::model::recipe::RecipeFormatError;
 
-#[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Eq, PartialEq,Clone)]
 pub enum Difficulty {
     Easy,
     Medium,
