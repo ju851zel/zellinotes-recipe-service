@@ -45,7 +45,7 @@ pub struct Recipe {
 }
 
 #[derive(Debug, Serialize)]
-pub struct RecipeFormatError { error: String }
+pub struct RecipeFormatError { pub error: String }
 
 impl From<&str> for RecipeFormatError {
     fn from(error: &str) -> Self { Self { error: error.to_string() } }

@@ -9,6 +9,7 @@ use mongodb::options::ClientOptions;
 
 use crate::model::recipe::{Recipe, RecipeFormatError};
 use crate::pagination::Pagination;
+use bson::oid::ObjectId;
 
 const RECIPE_COLLECTION: &str = "recipes";
 const URL: &str = "mongodb://localhost:26666";
@@ -39,6 +40,23 @@ pub async fn db_add_many_recipes(db: &Database, recipes: Vec<Recipe>) -> Result<
             .collect::<Vec<Document>>(), None).await {
         Ok(result) => Ok(Bson::from(result.inserted_ids.values().map(|b: &Bson| b.to_owned()).collect::<Vec<Bson>>())),
         Err(err) => Err(format!("Error inserting many recipes:{:?}. Err: {:?}", recipes, err)),
+    };
+}
+
+
+pub async fn db_get_one_recipe(db: &Database, id_as_string: String) -> Result<Option<Recipe>, String> {
+    let id = match ObjectId::with_string(&id_as_string) {
+        Ok(id) => id,
+        _ => return Ok(None),
+    };
+
+    let filter = Some(doc! { "_id": id});
+    return match db.collection(RECIPE_COLLECTION).find_one(filter, None).await {
+        Ok(optional_doc) => match optional_doc {
+            Some(document) => Recipe::try_from(document).map(|r| Some(r)).map_err(|e| e.error),
+            None => Ok(None),
+        },
+        Err(_) => Err(format!("Could not get document with id={} in db", id_as_string))
     };
 }
 
@@ -201,6 +219,30 @@ pub mod dao_tests {
         clean_up(db).await;
         Ok(())
     }
+
+    #[actix_rt::test]
+    async fn get_one_recipes() {
+        let db = init_test_database().await.unwrap();
+        let recipe = create_recipe();
+
+        let result = dao::db_add_one_recipe(&db, recipe.clone()).await.unwrap();
+        let inserted_oid = result.as_object_id().unwrap().to_string();
+
+
+        let doc_with_wrong_id_not_found= dao::db_get_one_recipe(&db, "not an object id".to_string())
+            .await.unwrap().is_none();
+        assert_eq!(doc_with_wrong_id_not_found, true);
+
+        let recipe_found= dao::db_get_one_recipe(&db, inserted_oid.clone())
+            .await.unwrap();
+        assert_eq!(recipe_found.is_some(), true);
+        assert_eq!(recipe_found.unwrap()._id, inserted_oid);
+
+        clean_up(db).await;
+    }
+
+
+
 
     async fn get_paged_recipes_test(db: &Database, mut recipes_to_insert: Vec<Recipe>, page: usize, items: usize, sorting: i32) {
         let result = dao::db_add_many_recipes(&db, recipes_to_insert.clone()).await;

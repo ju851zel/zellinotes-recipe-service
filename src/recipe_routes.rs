@@ -1,4 +1,4 @@
-use actix_web::{HttpResponse, Responder, web};
+use actix_web::{HttpRequest, HttpResponse, Responder, web};
 use actix_web::web::{Json, Query};
 
 use crate::{AppState, dao};
@@ -33,14 +33,62 @@ pub async fn add_many_recipes(data: web::Data<AppState>, recipes: Json<Vec<Recip
     }
 }
 
+pub async fn get_one_recipe(req: HttpRequest, data: web::Data<AppState>) -> impl Responder {
+    match req.match_info().get("id") {
+        Some(id) => {
+            info!("get single recipe with id={}", id);
+            match dao::db_get_one_recipe(&data.database, id.to_string()).await {
+                Ok(recipe) => {
+                    match recipe {
+                        Some(recipe) => {
+                            info!("get single recipe successful");
+                            HttpResponse::Ok().json(recipe)
+                        }
+                        None => {
+                            info!("recipe not found");
+                            HttpResponse::NotFound().body("")
+                        }
+                    }
+                }
+                Err(err) => {
+                    error!("{}", err);
+                    HttpResponse::InternalServerError().body("")
+                }
+            }
+        }
+        _ => {
+            error!("get one recipe no id provided: {:?}", req);
+            HttpResponse::BadRequest().body("")
+        }
+    }
+}
 
-pub async fn get_recipes(params: Query<Pagination>, data: web::Data<AppState>) -> impl Responder {
+
+pub async fn get_many_recipes(params: Query<Pagination>, data: web::Data<AppState>) -> impl Responder {
     return if params.is_fully_set() {
         info!("get recipes with pagination: {:?}", params);
-        HttpResponse::Ok().json(dao::db_get_all_recipes(&data.database, Some(params.0)).await)
+        match dao::db_get_all_recipes(&data.database, Some(params.0)).await {
+            Ok(recipes) => {
+                info!("success getting recipes with pagination");
+                HttpResponse::Ok().json(recipes)
+            }
+            Err(err) => {
+                error!("{}", err);
+                HttpResponse::InternalServerError().body("")
+            }
+        }
     } else if params.is_fully_empty() {
         info!("get recipes no pagination");
-        HttpResponse::Ok().json(dao::db_get_all_recipes(&data.database, None).await)
+        match dao::db_get_all_recipes(&data.database, None).await {
+            Ok(recipes) => {
+                info!("success getting all recipes ");
+                HttpResponse::Ok().json(recipes)
+            }
+            Err(err) => {
+                error!("{}", err);
+                HttpResponse::InternalServerError().body("")
+            }
+        }
     } else {
         error!("get recipes with wrong pagination: {:?}", params);
         HttpResponse::BadRequest().body("")
@@ -55,7 +103,7 @@ mod tests {
 
     use crate::AppState;
     use crate::dao::dao_tests::{clean_up, init_test_database};
-    use crate::recipe_routes::{add_many_recipes, add_one_recipe, get_recipes};
+    use crate::recipe_routes::{add_many_recipes, add_one_recipe, get_many_recipes, get_one_recipe};
 
     fn create_many_recipes() -> Bson {
         let vector = vec!(bson!(
@@ -196,7 +244,7 @@ mod tests {
 
         let mut app = test::init_service(App::new()
             .data(AppState { database: db.clone() })
-            .route("/recipes", web::get().to(get_recipes))
+            .route("/recipes", web::get().to(get_many_recipes))
             .route("/addManyRecipes", web::post().to(add_many_recipes))).await;
 
         let req = test::TestRequest::get().uri("/recipes").to_request();
@@ -216,6 +264,29 @@ mod tests {
 
 
         let req = test::TestRequest::get().uri("/recipes").to_request();
+        let resp = test::call_service(&mut app, req).await;
+        assert!(resp.status().is_success(), "{}", resp.status());
+
+        clean_up(db).await;
+    }
+
+    #[actix_rt::test]
+    async fn test_get_one_recipe() {
+        let db = init_test_database().await.unwrap();
+
+        let mut app = test::init_service(App::new()
+            .data(AppState { database: db.clone() })
+            .route("/recipes/{id}", web::get().to(get_one_recipe))
+            .route("/recipes/{id}", web::post().to(add_one_recipe))).await;
+
+        let req = test::TestRequest::get().uri("/recipes/hello").to_request();
+        let resp = test::call_service(&mut app, req).await;
+        assert!(resp.status().is_client_error(), "{}", resp.status());
+
+        let payload = create_one_recipe().as_document().unwrap().clone();
+
+        let req = test::TestRequest::post()
+            .set_json(&payload).uri("/recipes/new").to_request();
         let resp = test::call_service(&mut app, req).await;
         assert!(resp.status().is_success(), "{}", resp.status());
 
