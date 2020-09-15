@@ -2,11 +2,11 @@ use std::convert;
 use std::fmt;
 
 use bson::Bson;
-use futures_util::core_reexport::fmt::Formatter;
 use serde::Deserialize;
 use serde::Serialize;
 
 use crate::model::recipe::RecipeFormatError;
+use std::fmt::Formatter;
 
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq,Clone)]
 pub enum Difficulty {

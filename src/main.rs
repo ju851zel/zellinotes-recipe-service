@@ -45,6 +45,7 @@ async fn main() -> std::io::Result<()> {
                     .service(web::resource("/recipes/{id}")
                         .route(web::post().to(recipe_routes::add_one_recipe))
                         .route(web::get().to(recipe_routes::get_one_recipe))
+                        .route(web::put().to(recipe_routes::update_one_recipe))
                     )
             )
     }).bind(addr)?.run().await

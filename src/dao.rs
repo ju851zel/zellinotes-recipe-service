@@ -1,6 +1,7 @@
 use std::convert::TryFrom;
 
 use bson::Document;
+use bson::oid::ObjectId;
 use futures_util::StreamExt;
 use mongodb::{bson::{Bson, doc}, Client, options::FindOptions};
 use mongodb::Database;
@@ -9,7 +10,6 @@ use mongodb::options::ClientOptions;
 
 use crate::model::recipe::{Recipe, RecipeFormatError};
 use crate::pagination::Pagination;
-use bson::oid::ObjectId;
 
 const RECIPE_COLLECTION: &str = "recipes";
 const URL: &str = "mongodb://localhost:26666";
@@ -21,6 +21,27 @@ pub async fn init_database() -> Result<Database, Error> {
     client_options.app_name = Some(APP_NAME.to_string());
     let client = Client::with_options(client_options)?;
     return Ok(client.database(DATABASE));
+}
+
+
+pub async fn db_update_one_recipe(db: &Database, id_as_string: String, recipe: Recipe) -> Result<Option<()>, String> {
+    let id = match ObjectId::with_string(&id_as_string) {
+        Ok(id) => id,
+        _ => return Ok(None)
+    };
+
+    let query = doc! {"_id": Bson::ObjectId(id)};
+    return match db.collection(RECIPE_COLLECTION)
+        .update_one(query, Document::from(recipe.clone()), None).await {
+        Ok(result) => {
+            if result.modified_count == 1 {
+                Ok(Some(()))
+            } else {
+                Err(format!("Error updating recipe={:#?}, no doc updated", recipe.clone()))
+            }
+        }
+        Err(err) => Err(format!("Error updating recipe={:#?}. Err={:?}", recipe, err)),
+    };
 }
 
 /// ignores recipe Id
@@ -115,7 +136,7 @@ pub mod dao_tests {
     use mongodb::error::Error;
     use mongodb::options::ClientOptions;
 
-    use crate::dao;
+    use crate::{dao, init_logger};
     use crate::model::difficulty::Difficulty;
     use crate::model::recipe::Recipe;
     use crate::pagination::Pagination;
@@ -177,6 +198,24 @@ pub mod dao_tests {
     }
 
     #[actix_rt::test]
+    async fn update_one_recipe_test() {
+        init_logger();
+        let db = init_test_database().await.unwrap();
+        let mut recipe = create_recipe();
+
+        let result = dao::db_add_one_recipe(&db, recipe.clone()).await;
+        assert_eq!(result.is_ok(), true, "{}", result.err().unwrap());
+        let recipe_id = result.unwrap().as_object_id().unwrap().to_string();
+        println!("{}", recipe_id);
+        recipe.title = "new".to_string();
+
+        let result = dao::db_update_one_recipe(&db, recipe_id.clone(), recipe).await;
+        assert_eq!(result.is_ok(), true, "{}", result.err().unwrap());
+
+        clean_up(db).await;
+    }
+
+    #[actix_rt::test]
     async fn add_many_recipes_test() {
         let db = init_test_database().await.unwrap();
         let recipes = create_many_recipes(50);
@@ -229,19 +268,17 @@ pub mod dao_tests {
         let inserted_oid = result.as_object_id().unwrap().to_string();
 
 
-        let doc_with_wrong_id_not_found= dao::db_get_one_recipe(&db, "not an object id".to_string())
+        let doc_with_wrong_id_not_found = dao::db_get_one_recipe(&db, "not an object id".to_string())
             .await.unwrap().is_none();
         assert_eq!(doc_with_wrong_id_not_found, true);
 
-        let recipe_found= dao::db_get_one_recipe(&db, inserted_oid.clone())
+        let recipe_found = dao::db_get_one_recipe(&db, inserted_oid.clone())
             .await.unwrap();
         assert_eq!(recipe_found.is_some(), true);
         assert_eq!(recipe_found.unwrap()._id, inserted_oid);
 
         clean_up(db).await;
     }
-
-
 
 
     async fn get_paged_recipes_test(db: &Database, mut recipes_to_insert: Vec<Recipe>, page: usize, items: usize, sorting: i32) {
@@ -267,13 +304,3 @@ pub mod dao_tests {
         println!("{:#?}", read_recipes);
     }
 }
-
-
-
-
-
-
-
-
-
-
