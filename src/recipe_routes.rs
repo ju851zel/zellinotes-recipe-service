@@ -1,4 +1,4 @@
-use actix_web::{HttpRequest, HttpResponse, Responder, web};
+use actix_web::{Either, HttpRequest, HttpResponse, Responder, web};
 use actix_web::dev::HttpResponseBuilder;
 use actix_web::web::{Json, Query};
 
@@ -27,18 +27,23 @@ impl RecipeRoutes {
             .take_defined()
     }
 
-    pub async fn add_one_recipe(data: web::Data<Dao>, recipe: Json<Recipe>) -> impl Responder {
-        let recipe = recipe.into_inner();
-        match data.add_one_recipe( recipe.clone()).await {
-            Ok(bson) => HttpResponse::Ok().json(bson),
-            Err(_) => HttpResponse::InternalServerError().body("")
+    pub async fn add_one_recipe(data: web::Data<Dao>, recipe: Json<Recipe>) -> Either<impl Responder, impl Responder> {
+        match data.add_one_recipe(recipe.into_inner()).await {
+            Ok(bson) => Either::A(HttpResponse::Ok().json(bson)),
+            Err(_) => Either::B(HttpResponse::InternalServerError())
         }
     }
 
+    pub async fn add_many_recipes(data: web::Data<Dao>, recipes: Json<Vec<Recipe>>) -> Either<impl Responder, impl Responder> {
+        match data.add_many_recipes(recipes.into_inner()).await {
+            Ok(bson) => Either::A(HttpResponse::Ok().json(bson)),
+            Err(_) => Either::B(HttpResponse::InternalServerError())
+        }
+    }
 }
 
 async fn update_one_recipe(req: HttpRequest, data: web::Data<Dao>, recipe: Json<Recipe>)
-                               -> Result<Result<HttpResponseBuilder, HttpResponseBuilder>, (HttpResponseBuilder, RoutesError)> {
+                           -> Result<Result<HttpResponseBuilder, HttpResponseBuilder>, (HttpResponseBuilder, RoutesError)> {
     let id = extract_id_from_req(req)
         .map_err(|err| (HttpResponse::BadRequest(), err))?;
 
@@ -57,20 +62,6 @@ fn extract_id_from_req(req: HttpRequest) -> Result<String, RoutesError> {
         .ok_or(format!("Error getting id param from HTTP request"))
 }
 
-
-pub async fn add_many_recipes(data: web::Data<Dao>, recipes: Json<Vec<Recipe>>) -> impl Responder {
-    let recipes = recipes.into_inner();
-    match dao::db_add_many_recipes(&data.database, recipes.clone()).await {
-        Ok(bson) => {
-            info!("Added new many recipes: {:?}", recipes);
-            HttpResponse::Ok().json(bson)
-        }
-        Err(err) => {
-            error!("{}", err);
-            HttpResponse::InternalServerError().body("")
-        }
-    }
-}
 
 pub async fn get_one_recipe(req: HttpRequest, data: web::Data<Dao>) -> impl Responder {
     match req.match_info().get("id") {

@@ -40,7 +40,7 @@ async fn main() -> std::io::Result<()> {
                 web::scope("/api/v1")
                     .service(web::resource("/recipes")
                         .route(web::get().to(recipe_routes::get_many_recipes))
-                        .route(web::post().to(recipe_routes::add_many_recipes)))
+                        .route(web::post().to(RecipeRoutes::add_many_recipes)))
                     .service(web::resource("/recipes/{id}")
                                  .route(web::post().to(RecipeRoutes::add_one_recipe))
                                  .route(web::get().to(recipe_routes::get_one_recipe))

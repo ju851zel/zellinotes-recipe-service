@@ -44,6 +44,12 @@ impl Dao {
             .log_if_ok(|id| info!("Added recipe in db. id={:#?}", id))
             .log_if_err(|err| error!("Could not add recipe={:#?}, Err={:#?}", recipe, err))
     }
+
+    pub async fn add_many_recipes(&self, recipes: Vec<Recipe>) -> Result<Bson, String> {
+        add_many_recipes(&self.database, recipes.clone()).await
+            .log_if_ok(|id| info!("Added multiple recipes in db. ids={:#?}", id))
+            .log_if_err(|err| error!("Could not add multiple recipes={:#?}, Err={:#?}", recipes, err))
+    }
 }
 
 fn id_to_object_id(id: String) -> Result<ObjectId, DaoError> {
@@ -87,7 +93,7 @@ async fn add_one_recipe(db: &Database, recipe: Recipe) -> Result<Bson, String> {
     };
 }
 
-pub async fn db_add_many_recipes(db: &Database, recipes: Vec<Recipe>) -> Result<Bson, String> {
+async fn add_many_recipes(db: &Database, recipes: Vec<Recipe>) -> Result<Bson, String> {
     return match db.collection(RECIPE_COLLECTION).insert_many(
         recipes.clone()
             .into_iter()
