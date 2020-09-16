@@ -55,6 +55,26 @@ impl RecipeRoutes {
             None => Either::A(HttpResponse::InternalServerError())
         }
     }
+
+    pub async fn get_many_recipes(params: Query<Pagination>, data: web::Data<Dao>) -> Either<impl Responder, impl Responder> {
+        return if params.is_fully_set() {
+            info!("get recipes with pagination: {:?}", params);
+            match data.get_many_recipes( Some(params.0)).await {
+                Some(recipes) => Either::A(HttpResponse::Ok().json(recipes)),
+                None => Either::B(HttpResponse::InternalServerError())
+            }
+        } else if params.is_fully_empty() {
+            info!("get recipes no pagination");
+            match data.get_many_recipes( None).await {
+                Some(recipes) => Either::A(HttpResponse::Ok().json(recipes)),
+                None => Either::B(HttpResponse::InternalServerError())
+            }
+        } else {
+            error!("get recipes with wrong pagination: {:?}", params);
+            Either::B(HttpResponse::BadRequest())
+        };
+    }
+
 }
 
 
@@ -68,37 +88,6 @@ fn extract_id_from_req(req: HttpRequest) -> Result<String, HttpResponseBuilder> 
     }
 }
 
-
-pub async fn get_many_recipes(params: Query<Pagination>, data: web::Data<Dao>) -> impl Responder {
-    return if params.is_fully_set() {
-        info!("get recipes with pagination: {:?}", params);
-        match dao::db_get_all_recipes(&data.database, Some(params.0)).await {
-            Ok(recipes) => {
-                info!("success getting recipes with pagination");
-                HttpResponse::Ok().json(recipes)
-            }
-            Err(err) => {
-                error!("{}", err);
-                HttpResponse::InternalServerError().body("")
-            }
-        }
-    } else if params.is_fully_empty() {
-        info!("get recipes no pagination");
-        match dao::db_get_all_recipes(&data.database, None).await {
-            Ok(recipes) => {
-                info!("success getting all recipes ");
-                HttpResponse::Ok().json(recipes)
-            }
-            Err(err) => {
-                error!("{}", err);
-                HttpResponse::InternalServerError().body("")
-            }
-        }
-    } else {
-        error!("get recipes with wrong pagination: {:?}", params);
-        HttpResponse::BadRequest().body("")
-    };
-}
 
 
 #[cfg(test)]

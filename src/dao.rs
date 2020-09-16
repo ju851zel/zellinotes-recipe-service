@@ -57,8 +57,15 @@ impl Dao {
 
     pub async fn get_one_recipe(&self, id: String) -> Option<Option<Recipe>> {
         get_one_recipe(&self.database, id.clone()).await
-            .log_if_ok(|id| info!("Added multiple recipes in db. ids={:#?}", id))
+            .log_if_ok(|id| info!("Got one recipe from db. id={:#?}", id))
             .log_if_err(|err| error!("{} id={:#?}", err, id))
+            .ok()
+    }
+
+    pub async fn get_many_recipes(&self, pagination: Option<Pagination>) -> Option<Vec<Recipe>> {
+        get_many_recipes(&self.database, pagination).await
+            .log_if_ok(|ids| info!("Get many recipes from db. ids={:#?}", ids))
+            .log_if_err(|err| error!("{}", err))
             .ok()
     }
 }
@@ -132,7 +139,7 @@ pub async fn get_one_recipe(db: &Database, id: String) -> Result<Option<Recipe>,
 }
 
 
-pub async fn db_get_all_recipes(db: &Database, pagination: Option<Pagination>) -> Result<Vec<Recipe>, String> {
+pub async fn get_many_recipes(db: &Database, pagination: Option<Pagination>) -> Result<Vec<Recipe>, String> {
     let mut find_options = FindOptions::default();
     let mut skip = 0;
     let mut take = usize::MAX;
