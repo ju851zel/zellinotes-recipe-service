@@ -59,13 +59,13 @@ impl RecipeRoutes {
     pub async fn get_many_recipes(params: Query<Pagination>, data: web::Data<Dao>) -> Either<impl Responder, impl Responder> {
         return if params.is_fully_set() {
             info!("get recipes with pagination: {:?}", params);
-            match data.get_many_recipes( Some(params.0)).await {
+            match data.get_many_recipes(Some(params.0)).await {
                 Some(recipes) => Either::A(HttpResponse::Ok().json(recipes)),
                 None => Either::B(HttpResponse::InternalServerError())
             }
         } else if params.is_fully_empty() {
             info!("get recipes no pagination");
-            match data.get_many_recipes( None).await {
+            match data.get_many_recipes(None).await {
                 Some(recipes) => Either::A(HttpResponse::Ok().json(recipes)),
                 None => Either::B(HttpResponse::InternalServerError())
             }
@@ -74,7 +74,6 @@ impl RecipeRoutes {
             Either::B(HttpResponse::BadRequest())
         };
     }
-
 }
 
 
@@ -89,7 +88,6 @@ fn extract_id_from_req(req: HttpRequest) -> Result<String, HttpResponseBuilder> 
 }
 
 
-
 #[cfg(test)]
 mod tests {
     use actix_web::{App, test, web};
@@ -97,8 +95,8 @@ mod tests {
 
     use crate::{Dao, init_logger};
     use crate::dao::dao_tests::{clean_up, init_test_database};
-    use crate::recipe_routes::{add_many_recipes, add_one_recipe, get_many_recipes, get_one_recipe, update_one_recipe};
     use crate::dao::get_one_recipe;
+    use crate::recipe_routes::{add_many_recipes, add_one_recipe, get_many_recipes, get_one_recipe, update_one_recipe};
 
     fn create_many_recipes() -> Bson {
         let vector = vec!(bson!(
