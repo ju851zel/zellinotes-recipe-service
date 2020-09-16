@@ -1,4 +1,5 @@
 use std::convert::TryFrom;
+use std::sync::Arc;
 
 use bson::Document;
 use bson::oid::ObjectId;
@@ -8,15 +9,14 @@ use mongodb::Database;
 use mongodb::error::Error;
 use mongodb::options::ClientOptions;
 
+use crate::{LogExtensionErr, LogExtensionOk};
 use crate::model::recipe::{Recipe, RecipeFormatError};
 use crate::pagination::Pagination;
-use crate::{LogExtensionOk, LogExtensionErr};
 
 const RECIPE_COLLECTION: &str = "recipes";
 const URL: &str = "mongodb://localhost:26666";
 const APP_NAME: &str = "Zellinotes recipes";
 const DATABASE: &str = "zellinotes_recipes";
-
 
 
 type DaoError = String;
@@ -27,34 +27,44 @@ pub struct Dao {
 }
 
 impl Dao {
-    pub async fn new() -> Result<Database, Error> {
+    pub async fn new() -> Option<Database> {
         get_db_handler().await
             .log_if_ok(|_| info!("Created database handler"))
             .log_if_err(|err| error!("Could not create database handler. Err={}", err))
+            .ok()
     }
 
-    pub async fn update_one_recipe(&self, id: String, recipe: Recipe) -> Result<Option<()>, String> {
+    pub async fn update_one_recipe(&self, id: String, recipe: Recipe) -> Option<Option<()>> {
         update_one_recipe(&self.database, id.clone(), recipe).await
             .log_if_ok(|_| info!("Updated recipe in db with id={:#?}", &id))
             .log_if_err(|err| error!("Could not update recipe with id={:#?}, Err={:#?}", &id, err))
+            .ok()
     }
 
-    pub async fn add_one_recipe(&self, recipe: Recipe) -> Result<Bson, String> {
+    pub async fn add_one_recipe(&self, recipe: Recipe) -> Option<Bson> {
         add_one_recipe(&self.database, recipe.clone()).await
             .log_if_ok(|id| info!("Added recipe in db. id={:#?}", id))
             .log_if_err(|err| error!("Could not add recipe={:#?}, Err={:#?}", recipe, err))
+            .ok()
     }
 
-    pub async fn add_many_recipes(&self, recipes: Vec<Recipe>) -> Result<Bson, String> {
+    pub async fn add_many_recipes(&self, recipes: Vec<Recipe>) -> Option<Bson> {
         add_many_recipes(&self.database, recipes.clone()).await
             .log_if_ok(|id| info!("Added multiple recipes in db. ids={:#?}", id))
             .log_if_err(|err| error!("Could not add multiple recipes={:#?}, Err={:#?}", recipes, err))
+            .ok()
+    }
+
+    pub async fn get_one_recipe(&self, id: String) -> Option<Option<Recipe>> {
+        get_one_recipe(&self.database, id.clone()).await
+            .log_if_ok(|id| info!("Added multiple recipes in db. ids={:#?}", id))
+            .log_if_err(|err| error!("{} id={:#?}", err, id))
+            .ok()
     }
 }
 
-fn id_to_object_id(id: String) -> Result<ObjectId, DaoError> {
-    ObjectId::with_string(&id)
-        .map_err(|err| format!("Could not create object id from provided id"))
+fn id_to_object_id(id: String) -> Result<ObjectId, String> {
+    ObjectId::with_string(&id).map_err(|_| format!("Could not parse id={:#?} into Object Id", id))
 }
 
 fn object_id_into_doc(id: ObjectId) -> Document {
@@ -69,55 +79,55 @@ async fn get_db_handler() -> Result<Database, Error> {
 }
 
 
-async fn update_one_recipe(db: &Database, id: String, recipe: Recipe) -> Result<Option<()>, DaoError> {
+async fn update_one_recipe(db: &Database, id: String, recipe: Recipe) -> Result<Option<()>, String> {
     let object_id = id_to_object_id(id.clone())?;
     let query = object_id_into_doc(object_id);
     let recipe = Document::from(recipe);
 
     return db.collection(RECIPE_COLLECTION)
         .update_one(query, recipe, None).await
-        .map_err(|err| format!("Could not update recipe with id={:#?}, Err={:#?}", id, err))
+        .map_err(|e| format!("{:#?}", e.kind))
         .map(|result| match result.modified_count {
-            0 =>None,
+            0 => None,
             _ => Some(()),
-        })
-
+        });
 }
 
 /// ignores recipe Id
-async fn add_one_recipe(db: &Database, recipe: Recipe) -> Result<Bson, String> {
+async fn add_one_recipe(db: &Database, recipe: Recipe) -> Result<Bson, Error> {
     return match db.collection(RECIPE_COLLECTION)
         .insert_one(recipe.clone().into(), None).await {
         Ok(result) => Ok(result.inserted_id),
-        Err(err) => Err(format!("Error inserting recipe={:?}, Err={:?}", recipe, err)),
+        Err(err) => Err(err),
     };
 }
 
-async fn add_many_recipes(db: &Database, recipes: Vec<Recipe>) -> Result<Bson, String> {
+async fn add_many_recipes(db: &Database, recipes: Vec<Recipe>) -> Result<Bson, Error> {
     return match db.collection(RECIPE_COLLECTION).insert_many(
         recipes.clone()
             .into_iter()
             .map(|r| r.into())
             .collect::<Vec<Document>>(), None).await {
         Ok(result) => Ok(Bson::from(result.inserted_ids.values().map(|b: &Bson| b.to_owned()).collect::<Vec<Bson>>())),
-        Err(err) => Err(format!("Error inserting many recipes:{:?}. Err: {:?}", recipes, err)),
+        Err(err) => Err(err),
     };
 }
 
 
-pub async fn db_get_one_recipe(db: &Database, id_as_string: String) -> Result<Option<Recipe>, String> {
-    let id = match ObjectId::with_string(&id_as_string) {
-        Ok(id) => id,
-        _ => return Ok(None),
-    };
+pub async fn get_one_recipe(db: &Database, id: String) -> Result<Option<Recipe>, String> {
+    let object_id = id_to_object_id(id.clone())
+        .map_err(|e| format!("id={:#?} not parsable to object id", id.clone()))?;
+    let query = object_id_into_doc(object_id);
 
-    let filter = Some(doc! { "_id": id});
-    return match db.collection(RECIPE_COLLECTION).find_one(filter, None).await {
+    return match db.collection(RECIPE_COLLECTION).find_one(query, None).await {
         Ok(optional_doc) => match optional_doc {
-            Some(document) => Recipe::try_from(document).map(|r| Some(r)).map_err(|e| e.error),
+            Some(document) => match Recipe::try_from(document) {
+                Ok(recipe) => { Ok(Some(recipe)) }
+                Err(err) => Err(err.error)
+            }
             None => Ok(None),
         },
-        Err(_) => Err(format!("Could not get document with id={} in db", id_as_string))
+        Err(err) => Err(format!("{:#?}", err))
     };
 }
 
@@ -308,11 +318,11 @@ pub mod dao_tests {
         let inserted_oid = result.as_object_id().unwrap().to_string();
 
 
-        let doc_with_wrong_id_not_found = dao::db_get_one_recipe(&db, "not an object id".to_string())
+        let doc_with_wrong_id_not_found = dao::get_one_recipe(&db, "not an object id".to_string())
             .await.unwrap().is_none();
         assert_eq!(doc_with_wrong_id_not_found, true);
 
-        let recipe_found = dao::db_get_one_recipe(&db, inserted_oid.clone())
+        let recipe_found = dao::get_one_recipe(&db, inserted_oid.clone())
             .await.unwrap();
         assert_eq!(recipe_found.is_some(), true);
         assert_eq!(recipe_found.unwrap()._id, inserted_oid);

@@ -2,7 +2,7 @@ use actix_web::{Either, HttpRequest, HttpResponse, Responder, web};
 use actix_web::dev::HttpResponseBuilder;
 use actix_web::web::{Json, Query};
 
-use crate::{dao, LogExtensionErr, LogExtensionOk, TakeDefined};
+use crate::dao;
 use crate::dao::Dao;
 use crate::model::recipe::Recipe;
 use crate::pagination::Pagination;
@@ -13,82 +13,57 @@ pub struct RecipeRoutes {}
 
 impl RecipeRoutes {
     pub async fn update_one_recipe(req: HttpRequest, data: web::Data<Dao>, recipe: Json<Recipe>) -> impl Responder {
-        update_one_recipe(req.clone(), data, recipe).await
-            .log_if_ok(|updated| match updated {
-                Ok(_) => info!("Updated recipe with id={:#?}",
-                               extract_id_from_req(req.clone()).unwrap()),
-                Err(_) => info!("Not found recipe with id={:#?}",
-                                extract_id_from_req(req.clone()).unwrap()),
-            })
-            .log_if_err(|err| error!("Error updating recipe with id={:#?}, Err={:#?}",
-                                     extract_id_from_req(req).unwrap(), err.1))
-            .map(|result| result.take_defined())
-            .map_err(|result| result.0)
-            .take_defined()
+        let id = match extract_id_from_req(req) {
+            Ok(id) => id,
+            Err(err) => return err
+        };
+
+        match data.update_one_recipe(id, recipe.into_inner()).await {
+            Some(updated) => match updated {
+                Some(_) => HttpResponse::Ok(),
+                None => HttpResponse::NotFound(),
+            },
+            None => HttpResponse::InternalServerError()
+        }
     }
 
     pub async fn add_one_recipe(data: web::Data<Dao>, recipe: Json<Recipe>) -> Either<impl Responder, impl Responder> {
         match data.add_one_recipe(recipe.into_inner()).await {
-            Ok(bson) => Either::A(HttpResponse::Ok().json(bson)),
-            Err(_) => Either::B(HttpResponse::InternalServerError())
+            Some(bson) => Either::A(HttpResponse::Ok().json(bson)),
+            None => Either::B(HttpResponse::InternalServerError())
         }
     }
 
     pub async fn add_many_recipes(data: web::Data<Dao>, recipes: Json<Vec<Recipe>>) -> Either<impl Responder, impl Responder> {
         match data.add_many_recipes(recipes.into_inner()).await {
-            Ok(bson) => Either::A(HttpResponse::Ok().json(bson)),
-            Err(_) => Either::B(HttpResponse::InternalServerError())
+            Some(bson) => Either::A(HttpResponse::Ok().json(bson)),
+            None => Either::B(HttpResponse::InternalServerError())
+        }
+    }
+
+    pub async fn get_one_recipe(req: HttpRequest, data: web::Data<Dao>) -> Either<impl Responder, impl Responder> {
+        let id = match extract_id_from_req(req) {
+            Ok(id) => id,
+            Err(bad_request) => return Either::A(bad_request)
+        };
+
+        match data.get_one_recipe(id).await {
+            Some(recipe_option) => match recipe_option {
+                Some(recipe) => Either::B(HttpResponse::Ok().json(recipe)),
+                None => Either::A(HttpResponse::NotFound())
+            }
+            None => Either::A(HttpResponse::InternalServerError())
         }
     }
 }
 
-async fn update_one_recipe(req: HttpRequest, data: web::Data<Dao>, recipe: Json<Recipe>)
-                           -> Result<Result<HttpResponseBuilder, HttpResponseBuilder>, (HttpResponseBuilder, RoutesError)> {
-    let id = extract_id_from_req(req)
-        .map_err(|err| (HttpResponse::BadRequest(), err))?;
 
-    data.update_one_recipe(id, recipe.into_inner()).await
-        .map_err(|err| (HttpResponse::InternalServerError(), err))
-        .map(|updated| match updated {
-            Some(_) => Ok(HttpResponse::Ok()),
-            None => Err(HttpResponse::NotFound())
-        })
-}
-
-
-fn extract_id_from_req(req: HttpRequest) -> Result<String, RoutesError> {
-    req.match_info().get("id")
-        .map(|id| id.to_string())
-        .ok_or(format!("Error getting id param from HTTP request"))
-}
-
-
-pub async fn get_one_recipe(req: HttpRequest, data: web::Data<Dao>) -> impl Responder {
+fn extract_id_from_req(req: HttpRequest) -> Result<String, HttpResponseBuilder> {
     match req.match_info().get("id") {
-        Some(id) => {
-            info!("get single recipe with id={}", id);
-            match dao::db_get_one_recipe(&data.database, id.to_string()).await {
-                Ok(recipe) => {
-                    match recipe {
-                        Some(recipe) => {
-                            info!("get single recipe successful");
-                            HttpResponse::Ok().json(recipe)
-                        }
-                        None => {
-                            info!("recipe not found");
-                            HttpResponse::NotFound().body("")
-                        }
-                    }
-                }
-                Err(err) => {
-                    error!("{}", err);
-                    HttpResponse::InternalServerError().body("")
-                }
-            }
-        }
-        _ => {
-            error!("get one recipe no id provided: {:?}", req);
-            HttpResponse::BadRequest().body("")
+        Some(id) => Ok(id.to_string()),
+        None => {
+            error!("Error getting id param from HTTP request={:#?}", req);
+            return Err(HttpResponse::BadRequest());
         }
     }
 }
@@ -134,6 +109,7 @@ mod tests {
     use crate::{Dao, init_logger};
     use crate::dao::dao_tests::{clean_up, init_test_database};
     use crate::recipe_routes::{add_many_recipes, add_one_recipe, get_many_recipes, get_one_recipe, update_one_recipe};
+    use crate::dao::get_one_recipe;
 
     fn create_many_recipes() -> Bson {
         let vector = vec!(bson!(

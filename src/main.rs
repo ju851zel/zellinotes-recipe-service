@@ -8,7 +8,7 @@ extern crate simplelog;
 
 use std::fs::File;
 
-use actix_web::{App, HttpServer, web, Responder};
+use actix_web::{App, HttpServer, Responder, web};
 use mongodb::Database;
 use simplelog::{CombinedLogger, Config, LevelFilter, TerminalMode, TermLogger, WriteLogger};
 
@@ -39,12 +39,12 @@ async fn main() -> std::io::Result<()> {
             .service(
                 web::scope("/api/v1")
                     .service(web::resource("/recipes")
-                        .route(web::get().to(recipe_routes::get_many_recipes))
+                        .route(web::get().to(RecipeRoutes::get_many_recipes))
                         .route(web::post().to(RecipeRoutes::add_many_recipes)))
                     .service(web::resource("/recipes/{id}")
-                                 .route(web::post().to(RecipeRoutes::add_one_recipe))
-                                 .route(web::get().to(recipe_routes::get_one_recipe))
-                             .route(web::put().to(RecipeRoutes::update_one_recipe))
+                        .route(web::post().to(RecipeRoutes::add_one_recipe))
+                        .route(web::get().to(RecipeRoutes::get_one_recipe))
+                        .route(web::put().to(RecipeRoutes::update_one_recipe))
                     )
             )
     }).bind(addr)?.run().await
