@@ -10,13 +10,46 @@ use mongodb::options::ClientOptions;
 
 use crate::model::recipe::{Recipe, RecipeFormatError};
 use crate::pagination::Pagination;
+use crate::{LogExtensionOk, LogExtensionErr};
 
 const RECIPE_COLLECTION: &str = "recipes";
 const URL: &str = "mongodb://localhost:26666";
 const APP_NAME: &str = "Zellinotes recipes";
 const DATABASE: &str = "zellinotes_recipes";
 
-pub async fn init_database() -> Result<Database, Error> {
+
+
+type DaoError = String;
+
+#[derive(Clone)]
+pub struct Dao {
+    pub(crate) database: Database
+}
+
+impl Dao {
+    pub async fn new() -> Result<Database, Error> {
+        get_db_handler().await
+            .log_if_ok(|_| info!("Created database handler"))
+            .log_if_err(|err| error!("Could not create database handler. Err={}", err))
+    }
+
+    pub async fn update_one_recipe(&self, id: String, recipe: Recipe) -> Result<Option<()>, String> {
+        update_one_recipe(&self.database, id.clone(), recipe).await
+            .log_if_ok(|_| info!("Updated recipe in db with id={:#?}", &id))
+            .log_if_err(|err| error!("Could not update recipe with id={:#?}, Err={:#?}", &id, err))
+    }
+}
+
+fn id_to_object_id(id: String) -> Result<ObjectId, DaoError> {
+    ObjectId::with_string(&id)
+        .map_err(|err| format!("Could not create object id from provided id"))
+}
+
+fn object_id_into_doc(id: ObjectId) -> Document {
+    doc! {"_id": Bson::ObjectId(id)}
+}
+
+async fn get_db_handler() -> Result<Database, Error> {
     let mut client_options = ClientOptions::parse(URL).await?;
     client_options.app_name = Some(APP_NAME.to_string());
     let client = Client::with_options(client_options)?;
@@ -24,24 +57,19 @@ pub async fn init_database() -> Result<Database, Error> {
 }
 
 
-pub async fn db_update_one_recipe(db: &Database, id_as_string: String, recipe: Recipe) -> Result<Option<()>, String> {
-    let id = match ObjectId::with_string(&id_as_string) {
-        Ok(id) => id,
-        _ => return Ok(None)
-    };
+async fn update_one_recipe(db: &Database, id: String, recipe: Recipe) -> Result<Option<()>, DaoError> {
+    let object_id = id_to_object_id(id.clone())?;
+    let query = object_id_into_doc(object_id);
+    let recipe = Document::from(recipe);
 
-    let query = doc! {"_id": Bson::ObjectId(id)};
-    return match db.collection(RECIPE_COLLECTION)
-        .update_one(query, Document::from(recipe.clone()), None).await {
-        Ok(result) => {
-            if result.modified_count == 1 {
-                Ok(Some(()))
-            } else {
-                Err(format!("Error updating recipe={:#?}, no doc updated", recipe.clone()))
-            }
-        }
-        Err(err) => Err(format!("Error updating recipe={:#?}. Err={:?}", recipe, err)),
-    };
+    return db.collection(RECIPE_COLLECTION)
+        .update_one(query, recipe, None).await
+        .map_err(|err| format!("Could not update recipe with id={:#?}, Err={:#?}", id, err))
+        .map(|result| match result.modified_count {
+            0 =>None,
+            _ => Some(()),
+        })
+
 }
 
 /// ignores recipe Id

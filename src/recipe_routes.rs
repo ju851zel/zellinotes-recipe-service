@@ -1,35 +1,55 @@
 use actix_web::{HttpRequest, HttpResponse, Responder, web};
+use actix_web::dev::HttpResponseBuilder;
 use actix_web::web::{Json, Query};
 
-use crate::{AppState, dao};
+use crate::{dao, LogExtensionErr, LogExtensionOk, TakeDefined};
+use crate::dao::Dao;
 use crate::model::recipe::Recipe;
 use crate::pagination::Pagination;
 
-pub async fn update_one_recipe(req: HttpRequest, data: web::Data<AppState>, recipe: Json<Recipe>) -> impl Responder {
-    let id = match req.match_info().get("id") {
-        Some(id) => id.to_string(),
-        None => return HttpResponse::BadRequest()
-    };
+type RoutesError = String;
 
-    match dao::db_update_one_recipe(&data.database, id.clone(), recipe.into_inner()).await {
-        Ok(bson_option) => match bson_option {
-            Some(_) => {
-                info!("Updated recipe with id={:#?}", id.clone());
-                HttpResponse::Ok()
-            }
-            None => {
-                info!("Recipe with id={:#?} not found", id);
-                HttpResponse::NotFound()
-            }
-        },
-        Err(err) => {
-            error!("{}", err);
-            HttpResponse::InternalServerError()
-        }
+struct RecipeRoutes {}
+
+impl RecipeRoutes {
+    pub async fn update_one_recipe(req: HttpRequest, data: web::Data<Dao>, recipe: Json<Recipe>) -> impl Responder {
+        update_one_recipe(req.clone(), data, recipe).await
+            .log_if_ok(|updated| match updated {
+                Ok(_) => info!("Updated recipe with id={:#?}",
+                               extract_id_from_req(req.clone()).unwrap()),
+                Err(_) => info!("Not found recipe with id={:#?}",
+                                extract_id_from_req(req.clone()).unwrap()),
+            })
+            .log_if_err(|err| error!("Error updating recipe with id={:#?}, Err={:#?}",
+                                     extract_id_from_req(req).unwrap(), err.1))
+            .map(|result| result.take_defined())
+            .map_err(|result| result.0)
+            .take_defined()
     }
 }
 
-pub async fn add_one_recipe(data: web::Data<AppState>, recipe: Json<Recipe>) -> impl Responder {
+pub async fn update_one_recipe(req: HttpRequest, data: web::Data<Dao>, recipe: Json<Recipe>)
+                               -> Result<Result<HttpResponseBuilder, HttpResponseBuilder>, (HttpResponseBuilder, RoutesError)> {
+    let id = extract_id_from_req(req)
+        .map_err(|err| (HttpResponse::BadRequest(), err))?;
+
+    data.update_one_recipe(id, recipe.into_inner()).await
+        .map_err(|err| (HttpResponse::InternalServerError(), err))
+        .map(|updated| match updated {
+            Some(_) => Ok(HttpResponse::Ok()),
+            None => Err(HttpResponse::NotFound())
+        })
+}
+
+
+fn extract_id_from_req(req: HttpRequest) -> Result<String, RoutesError> {
+    req.match_info().get("id")
+        .map(|id| id.to_string())
+        .ok_or(format!("Error getting id param from HTTP request"))
+}
+
+
+pub async fn add_one_recipe(data: web::Data<Dao>, recipe: Json<Recipe>) -> impl Responder {
     let recipe = recipe.into_inner();
     match dao::db_add_one_recipe(&data.database, recipe.clone()).await {
         Ok(bson) => {
@@ -43,7 +63,7 @@ pub async fn add_one_recipe(data: web::Data<AppState>, recipe: Json<Recipe>) -> 
     }
 }
 
-pub async fn add_many_recipes(data: web::Data<AppState>, recipes: Json<Vec<Recipe>>) -> impl Responder {
+pub async fn add_many_recipes(data: web::Data<Dao>, recipes: Json<Vec<Recipe>>) -> impl Responder {
     let recipes = recipes.into_inner();
     match dao::db_add_many_recipes(&data.database, recipes.clone()).await {
         Ok(bson) => {
@@ -57,7 +77,7 @@ pub async fn add_many_recipes(data: web::Data<AppState>, recipes: Json<Vec<Recip
     }
 }
 
-pub async fn get_one_recipe(req: HttpRequest, data: web::Data<AppState>) -> impl Responder {
+pub async fn get_one_recipe(req: HttpRequest, data: web::Data<Dao>) -> impl Responder {
     match req.match_info().get("id") {
         Some(id) => {
             info!("get single recipe with id={}", id);
@@ -88,7 +108,7 @@ pub async fn get_one_recipe(req: HttpRequest, data: web::Data<AppState>) -> impl
 }
 
 
-pub async fn get_many_recipes(params: Query<Pagination>, data: web::Data<AppState>) -> impl Responder {
+pub async fn get_many_recipes(params: Query<Pagination>, data: web::Data<Dao>) -> impl Responder {
     return if params.is_fully_set() {
         info!("get recipes with pagination: {:?}", params);
         match dao::db_get_all_recipes(&data.database, Some(params.0)).await {
@@ -125,7 +145,7 @@ mod tests {
     use actix_web::{App, test, web};
     use bson::Bson;
 
-    use crate::{AppState, init_logger};
+    use crate::{Dao, init_logger};
     use crate::dao::dao_tests::{clean_up, init_test_database};
     use crate::recipe_routes::{add_many_recipes, add_one_recipe, get_many_recipes, get_one_recipe, update_one_recipe};
 
@@ -214,7 +234,7 @@ mod tests {
         init_logger();
 
         let mut app = test::init_service(App::new()
-            .data(AppState { database: db.clone() })
+            .data(Dao { database: db.clone() })
             .route("/addOneRecipe", web::post().to(add_one_recipe))).await;
 
         let req = test::TestRequest::post().uri("/addOneRecipe").to_request();
@@ -242,7 +262,7 @@ mod tests {
         let db = init_test_database().await.unwrap();
 
         let mut app = test::init_service(App::new()
-            .data(AppState { database: db.clone() })
+            .data(Dao { database: db.clone() })
             .route("/addManyRecipes", web::post().to(add_many_recipes))).await;
 
         let req = test::TestRequest::post().uri("/addManyRecipes").to_request();
@@ -270,7 +290,7 @@ mod tests {
         let db = init_test_database().await.unwrap();
 
         let mut app = test::init_service(App::new()
-            .data(AppState { database: db.clone() })
+            .data(Dao { database: db.clone() })
             .route("/recipes", web::get().to(get_many_recipes))
             .route("/addManyRecipes", web::post().to(add_many_recipes))).await;
 
@@ -303,7 +323,7 @@ mod tests {
 
         init_logger();
         let mut app = test::init_service(App::new()
-            .data(AppState { database: db.clone() })
+            .data(Dao { database: db.clone() })
             .route("/recipes/{id}", web::get().to(get_one_recipe))
             .route("/recipes/{id}", web::post().to(add_one_recipe))).await;
 
@@ -338,7 +358,7 @@ mod tests {
         let db = init_test_database().await.unwrap();
 
         let mut app = test::init_service(App::new()
-            .data(AppState { database: db.clone() })
+            .data(Dao { database: db.clone() })
             .route("/recipes/{id}", web::get().to(get_one_recipe))
             .route("/recipes/{id}", web::post().to(add_one_recipe))
             .route("/recipes/{id}", web::put().to(update_one_recipe))).await;
