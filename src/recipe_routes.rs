@@ -9,7 +9,7 @@ use crate::pagination::Pagination;
 
 type RoutesError = String;
 
-struct RecipeRoutes {}
+pub struct RecipeRoutes {}
 
 impl RecipeRoutes {
     pub async fn update_one_recipe(req: HttpRequest, data: web::Data<Dao>, recipe: Json<Recipe>) -> impl Responder {
@@ -26,9 +26,18 @@ impl RecipeRoutes {
             .map_err(|result| result.0)
             .take_defined()
     }
+
+    pub async fn add_one_recipe(data: web::Data<Dao>, recipe: Json<Recipe>) -> impl Responder {
+        let recipe = recipe.into_inner();
+        match data.add_one_recipe( recipe.clone()).await {
+            Ok(bson) => HttpResponse::Ok().json(bson),
+            Err(_) => HttpResponse::InternalServerError().body("")
+        }
+    }
+
 }
 
-pub async fn update_one_recipe(req: HttpRequest, data: web::Data<Dao>, recipe: Json<Recipe>)
+async fn update_one_recipe(req: HttpRequest, data: web::Data<Dao>, recipe: Json<Recipe>)
                                -> Result<Result<HttpResponseBuilder, HttpResponseBuilder>, (HttpResponseBuilder, RoutesError)> {
     let id = extract_id_from_req(req)
         .map_err(|err| (HttpResponse::BadRequest(), err))?;
@@ -48,20 +57,6 @@ fn extract_id_from_req(req: HttpRequest) -> Result<String, RoutesError> {
         .ok_or(format!("Error getting id param from HTTP request"))
 }
 
-
-pub async fn add_one_recipe(data: web::Data<Dao>, recipe: Json<Recipe>) -> impl Responder {
-    let recipe = recipe.into_inner();
-    match dao::db_add_one_recipe(&data.database, recipe.clone()).await {
-        Ok(bson) => {
-            info!("Added new recipe: {:?}", bson);
-            HttpResponse::Ok().json(bson)
-        }
-        Err(err) => {
-            error!("{}", err);
-            HttpResponse::InternalServerError().body("")
-        }
-    }
-}
 
 pub async fn add_many_recipes(data: web::Data<Dao>, recipes: Json<Vec<Recipe>>) -> impl Responder {
     let recipes = recipes.into_inner();

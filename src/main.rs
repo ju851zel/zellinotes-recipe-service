@@ -13,6 +13,7 @@ use mongodb::Database;
 use simplelog::{CombinedLogger, Config, LevelFilter, TerminalMode, TermLogger, WriteLogger};
 
 use crate::dao::Dao;
+use crate::recipe_routes::RecipeRoutes;
 
 mod model;
 
@@ -41,9 +42,9 @@ async fn main() -> std::io::Result<()> {
                         .route(web::get().to(recipe_routes::get_many_recipes))
                         .route(web::post().to(recipe_routes::add_many_recipes)))
                     .service(web::resource("/recipes/{id}")
-                                 .route(web::post().to(recipe_routes::add_one_recipe))
+                                 .route(web::post().to(RecipeRoutes::add_one_recipe))
                                  .route(web::get().to(recipe_routes::get_one_recipe))
-                             // .route(web::put().to(recipe_routes::update_one_recipe))
+                             .route(web::put().to(RecipeRoutes::update_one_recipe))
                     )
             )
     }).bind(addr)?.run().await

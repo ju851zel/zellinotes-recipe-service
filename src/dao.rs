@@ -38,6 +38,12 @@ impl Dao {
             .log_if_ok(|_| info!("Updated recipe in db with id={:#?}", &id))
             .log_if_err(|err| error!("Could not update recipe with id={:#?}, Err={:#?}", &id, err))
     }
+
+    pub async fn add_one_recipe(&self, recipe: Recipe) -> Result<Bson, String> {
+        add_one_recipe(&self.database, recipe.clone()).await
+            .log_if_ok(|id| info!("Added recipe in db. id={:#?}", id))
+            .log_if_err(|err| error!("Could not add recipe={:#?}, Err={:#?}", recipe, err))
+    }
 }
 
 fn id_to_object_id(id: String) -> Result<ObjectId, DaoError> {
@@ -73,11 +79,11 @@ async fn update_one_recipe(db: &Database, id: String, recipe: Recipe) -> Result<
 }
 
 /// ignores recipe Id
-pub async fn db_add_one_recipe(db: &Database, recipe: Recipe) -> Result<Bson, String> {
+async fn add_one_recipe(db: &Database, recipe: Recipe) -> Result<Bson, String> {
     return match db.collection(RECIPE_COLLECTION)
         .insert_one(recipe.clone().into(), None).await {
         Ok(result) => Ok(result.inserted_id),
-        Err(err) => Err(format!("Error inserting recipe:{:?}. Err: {:?}", recipe, err)),
+        Err(err) => Err(format!("Error inserting recipe={:?}, Err={:?}", recipe, err)),
     };
 }
 
