@@ -85,7 +85,7 @@ async fn get_db_handler() -> Result<Database, Error> {
     return Ok(client.database(DATABASE));
 }
 
-
+/// If worked returns Option if Updated or not
 async fn update_one_recipe(db: &Database, id: String, recipe: Recipe) -> Result<Option<()>, String> {
     let object_id = id_to_object_id(id.clone())?;
     let query = object_id_into_doc(object_id);
@@ -189,11 +189,15 @@ pub mod dao_tests {
     use bson::oid::ObjectId;
     use chrono::{Duration, Timelike};
     use chrono::Utc;
+    use log::LevelFilter;
     use mongodb::{Client, Database};
     use mongodb::error::Error;
     use mongodb::options::ClientOptions;
+    use serial_test::serial;
+    use simplelog::{CombinedLogger, Config, TerminalMode, TermLogger};
 
     use crate::{dao, init_logger};
+    use crate::dao::Dao;
     use crate::model::difficulty::Difficulty;
     use crate::model::recipe::Recipe;
     use crate::pagination::Pagination;
@@ -202,7 +206,7 @@ pub mod dao_tests {
     const TEST_APP_NAME: &str = "Zellinotes development recipes";
     const TEST_DATABASE: &str = "test_zellinotes_development_recipes";
 
-    pub fn create_recipe() -> Recipe {
+    pub fn create_one_recipe() -> Recipe {
         Recipe {
             _id: "".to_string(),
             cooking_time_in_minutes: 10,
@@ -222,7 +226,7 @@ pub mod dao_tests {
 
     pub fn create_many_recipes(amount: i32) -> Vec<Recipe> {
         (0..amount).into_iter().map(|i| {
-            let mut x = create_recipe();
+            let mut x = create_one_recipe();
             x.title = i.to_string();
             x.created = Utc::now().with_nanosecond(0).unwrap() + Duration::days(1);
             x
@@ -234,116 +238,156 @@ pub mod dao_tests {
         client_options.app_name = Some(TEST_APP_NAME.to_string());
         let client = Client::with_options(client_options)?;
         let db = client.database(TEST_DATABASE);
-        clean_up(db).await;
-        let db = client.database(TEST_DATABASE);
         return Ok(db);
     }
 
-    pub async fn clean_up(db: Database) {
-        db.drop(None).await.unwrap();
+    pub async fn before() -> Dao {
+        init_test_logger();
+        let dao = Dao { database: init_test_database().await.unwrap() };
+        cleanup_after(dao).await;
+        Dao { database: init_test_database().await.unwrap() }
+    }
+
+    fn init_test_logger() {
+        let _ = TermLogger::init(LevelFilter::Info,
+                                 Config::default(),
+                                 TerminalMode::Mixed).unwrap_or_else(|e| ());
+    }
+
+    pub async fn cleanup_after(dao: Dao) {
+        dao.database.drop(None).await.unwrap();
     }
 
     #[actix_rt::test]
+    #[serial]
     async fn add_single_recipe_test() {
-        let db = init_test_database().await.unwrap();
-        let recipe = create_recipe();
+        let dao = before().await;
+        let recipe = create_one_recipe();
 
-        let result = dao::db_add_one_recipe(&db, recipe).await;
-        assert_eq!(result.is_ok(), true, "{}", result.err().unwrap());
+        let result = dao.add_one_recipe(recipe).await;
+        assert_eq!(result.is_some(), true);
+        result.unwrap().as_object_id().unwrap().timestamp().date();
 
-        clean_up(db).await;
+        cleanup_after(dao).await;
     }
 
     #[actix_rt::test]
+    #[serial]
     async fn update_one_recipe_test() {
-        init_logger();
-        let db = init_test_database().await.unwrap();
-        let mut recipe = create_recipe();
-
-        let result = dao::db_add_one_recipe(&db, recipe.clone()).await;
-        assert_eq!(result.is_ok(), true, "{}", result.err().unwrap());
-        let recipe_id = result.unwrap().as_object_id().unwrap().to_string();
-        println!("{}", recipe_id);
+        let dao = before().await;
+        let mut recipe = create_one_recipe();
+        let result = dao.add_one_recipe(recipe.clone()).await.unwrap();
+        let recipe_id = result.as_object_id().unwrap().to_string();
         recipe.title = "new".to_string();
 
-        let result = dao::db_update_one_recipe(&db, recipe_id.clone(), recipe).await;
-        assert_eq!(result.is_ok(), true, "{}", result.err().unwrap());
+        let result = dao.update_one_recipe(recipe_id.clone(), recipe.clone()).await;
+        assert_eq!(result.unwrap().is_some(), true);
 
-        clean_up(db).await;
+        let result = dao.update_one_recipe("5f7d1be300f9ff0e0049f573".to_string(), recipe.clone()).await;
+        assert_eq!(result.unwrap().is_none(), true);
+
+        cleanup_after(dao).await;
     }
 
-    #[actix_rt::test]
-    async fn add_many_recipes_test() {
-        let db = init_test_database().await.unwrap();
-        let recipes = create_many_recipes(50);
 
-        let result = dao::db_add_many_recipes(&db, recipes.clone()).await;
-        assert_eq!(result.is_ok(), true, "{}", result.err().unwrap());
+    #[actix_rt::test]
+    #[serial]
+    async fn add_many_recipes_test() {
+        let dao = before().await;
+        let recipes = create_many_recipes(50);
+        let amount_of_recipes = recipes.clone().len();
+
+        let result = dao.add_many_recipes(recipes).await;
+        assert_eq!(result.is_some(), true);
+
         let added_recipes: Vec<Bson> = result.unwrap().as_array().unwrap().to_owned();
         let added_recipes: Vec<ObjectId> = added_recipes.into_iter().map(|e| e.as_object_id().unwrap().to_owned()).collect();
-        let len_before = recipes.len();
-        let len_after = added_recipes.len();
-        assert_eq!(len_after, len_before, "recipes-added={}, recipes-read={}", len_before, len_after);
+        assert_eq!(amount_of_recipes, added_recipes.len(), "recipes-added={}, recipes-read={}", amount_of_recipes, added_recipes.len());
 
-        clean_up(db).await;
+        cleanup_after(dao).await;
     }
 
     #[actix_rt::test]
+    #[serial]
     async fn get_all_recipes() {
-        let db = init_test_database().await.unwrap();
+        let dao = before().await;
         let recipes = create_many_recipes(50);
+        let amount_of_recipes = recipes.clone().len();
+        let result = dao.add_many_recipes(recipes.clone()).await;
 
-        let result = dao::db_add_many_recipes(&db, recipes.clone()).await;
-        assert_eq!(result.clone().is_ok(), true, "{}", result.err().unwrap());
-        assert_eq!(result.clone().unwrap().as_array().unwrap().len(), recipes.clone().len(), "{}", result.err().unwrap());
+        assert_eq!(result.clone().is_some(), true);
+        assert_eq!(result.clone().unwrap().as_array().unwrap().len(), recipes.clone().len());
 
-        let read_recipes = dao::db_get_all_recipes(&db, None).await.unwrap();
-        assert_eq!(recipes.len(), read_recipes.len(), "recipes-wanted-to-add={}, recipes-read-after-add={}", recipes.len(), read_recipes.len());
+        let read_recipes = dao.get_many_recipes(None).await.unwrap();
+        assert_eq!(amount_of_recipes, read_recipes.len());
 
-        clean_up(db).await;
+        cleanup_after(dao).await;
     }
 
     #[actix_rt::test]
-    async fn get_paged_recipes() -> Result<(), ()> {
-        let db = init_test_database().await.unwrap();
-
-        get_paged_recipes_test(&db, create_many_recipes(20), 1, 10, 1).await;
-        get_paged_recipes_test(&db, create_many_recipes(20), 2, 5, 1).await;
-        get_paged_recipes_test(&db, create_many_recipes(20), 3, 5, 1).await;
-        get_paged_recipes_test(&db, create_many_recipes(20), 2, 20, 1).await;
-
-        clean_up(db).await;
+    #[serial]
+    async fn get_paged_recipes_1() -> Result<(), ()> {
+        let dao = before().await;
+        get_paged_recipes_test(&dao, create_many_recipes(20), 1, 5, 1).await;
+        cleanup_after(dao).await;
         Ok(())
     }
 
     #[actix_rt::test]
-    async fn get_one_recipes() {
-        let db = init_test_database().await.unwrap();
-        let recipe = create_recipe();
+    #[serial]
+    async fn get_paged_recipes_2() -> Result<(), ()> {
+        let dao = before().await;
+        get_paged_recipes_test(&dao, create_many_recipes(20), 2, 5, 1).await;
+        cleanup_after(dao).await;
+        Ok(())
+    }
 
-        let result = dao::db_add_one_recipe(&db, recipe.clone()).await.unwrap();
+    #[actix_rt::test]
+    #[serial]
+    async fn get_paged_recipes_3() -> Result<(), ()> {
+        let dao = before().await;
+        get_paged_recipes_test(&dao, create_many_recipes(20), 3, 5, 1).await;
+        cleanup_after(dao).await;
+        Ok(())
+    }
+
+    #[actix_rt::test]
+    #[serial]
+    async fn get_paged_recipes_4() -> Result<(), ()> {
+        let dao = before().await;
+        get_paged_recipes_test(&dao, create_many_recipes(20), 2, 20, 1).await;
+        cleanup_after(dao).await;
+        Ok(())
+    }
+
+    #[actix_rt::test]
+    #[serial]
+    async fn get_one_recipes() {
+        let dao = before().await;
+        let recipe = create_one_recipe();
+        let result = dao.add_one_recipe(recipe).await.unwrap();
+
         let inserted_oid = result.as_object_id().unwrap().to_string();
 
-
-        let doc_with_wrong_id_not_found = dao::get_one_recipe(&db, "not an object id".to_string())
+        let doc_with_wrong_id_not_found = dao.get_one_recipe("5f73167e00d1c93600f9bf73".to_string())
             .await.unwrap().is_none();
         assert_eq!(doc_with_wrong_id_not_found, true);
 
-        let recipe_found = dao::get_one_recipe(&db, inserted_oid.clone())
+        let recipe_found = dao.get_one_recipe(inserted_oid.clone())
             .await.unwrap();
         assert_eq!(recipe_found.is_some(), true);
         assert_eq!(recipe_found.unwrap()._id, inserted_oid);
 
-        clean_up(db).await;
+        cleanup_after(dao).await;
     }
 
 
-    async fn get_paged_recipes_test(db: &Database, mut recipes_to_insert: Vec<Recipe>, page: usize, items: usize, sorting: i32) {
-        let result = dao::db_add_many_recipes(&db, recipes_to_insert.clone()).await;
-        assert_eq!(result.clone().is_ok(), true, "{}", result.err().unwrap());
-        assert_eq!(result.clone().unwrap().as_array().unwrap().len(), recipes_to_insert.clone().len(), "{}", result.clone().err().unwrap());
+    async fn get_paged_recipes_test(dao: &Dao, mut recipes_to_insert: Vec<Recipe>, page: usize, items: usize, sorting: i32) {
+        let result = dao.add_many_recipes(recipes_to_insert.clone()).await;
+        assert_eq!(result.clone().is_some(), true);
+        assert_eq!(result.clone().unwrap().as_array().unwrap().len(), recipes_to_insert.clone().len());
 
-        let read_recipes = dao::db_get_all_recipes(&db, Some(Pagination {
+        let read_recipes = dao.get_many_recipes(Some(Pagination {
             page: Some(page),
             items: Some(items),
             sorting: Some(sorting),
