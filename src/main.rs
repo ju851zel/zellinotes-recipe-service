@@ -8,8 +8,7 @@ extern crate simplelog;
 
 use std::fs::File;
 
-use actix_web::{App, HttpServer, Responder, web};
-use mongodb::Database;
+use actix_web::{App, HttpServer, web};
 use simplelog::{CombinedLogger, Config, LevelFilter, TerminalMode, TermLogger, WriteLogger};
 
 use crate::dao::Dao;
