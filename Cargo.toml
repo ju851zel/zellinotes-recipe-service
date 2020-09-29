@@ -16,3 +16,6 @@ futures-util = "0.3.5"
 bson = "1.1.0"
 simplelog = "0.8.0"
 log = "0.4.11"
+
+[dev-dependencies]
+serial_test = "*"
