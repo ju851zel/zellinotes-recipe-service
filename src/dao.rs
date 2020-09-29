@@ -233,7 +233,7 @@ pub mod dao_tests {
         }).collect()
     }
 
-    pub async fn init_test_database() -> Result<Database, Error> {
+    async fn init_test_database() -> Result<Database, Error> {
         let mut client_options = ClientOptions::parse(TEST_URL).await?;
         client_options.app_name = Some(TEST_APP_NAME.to_string());
         let client = Client::with_options(client_options)?;

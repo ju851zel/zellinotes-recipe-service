@@ -1,6 +1,7 @@
 use actix_web::{Either, HttpRequest, HttpResponse, Responder, web};
 use actix_web::dev::HttpResponseBuilder;
 use actix_web::web::{Json, Query};
+use bson::oid::ObjectId;
 
 use crate::dao;
 use crate::dao::Dao;
@@ -12,13 +13,13 @@ type RoutesError = String;
 pub struct RecipeRoutes {}
 
 impl RecipeRoutes {
-    pub async fn update_one_recipe(req: HttpRequest, data: web::Data<Dao>, recipe: Json<Recipe>) -> impl Responder {
+    pub async fn update_one_recipe(req: HttpRequest, database: web::Data<Dao>, recipe: Json<Recipe>) -> impl Responder {
         let id = match extract_id_from_req(req) {
             Ok(id) => id,
             Err(err) => return err
         };
 
-        match data.update_one_recipe(id, recipe.into_inner()).await {
+        match database.update_one_recipe(id, recipe.into_inner()).await {
             Some(updated) => match updated {
                 Some(_) => HttpResponse::Ok(),
                 None => HttpResponse::NotFound(),
@@ -27,27 +28,27 @@ impl RecipeRoutes {
         }
     }
 
-    pub async fn add_one_recipe(data: web::Data<Dao>, recipe: Json<Recipe>) -> Either<impl Responder, impl Responder> {
-        match data.add_one_recipe(recipe.into_inner()).await {
+    pub async fn add_one_recipe(database: web::Data<Dao>, recipe: Json<Recipe>) -> Either<impl Responder, impl Responder> {
+        match database.add_one_recipe(recipe.into_inner()).await {
             Some(bson) => Either::A(HttpResponse::Ok().json(bson)),
             None => Either::B(HttpResponse::InternalServerError())
         }
     }
 
-    pub async fn add_many_recipes(data: web::Data<Dao>, recipes: Json<Vec<Recipe>>) -> Either<impl Responder, impl Responder> {
-        match data.add_many_recipes(recipes.into_inner()).await {
+    pub async fn add_many_recipes(database: web::Data<Dao>, recipes: Json<Vec<Recipe>>) -> Either<impl Responder, impl Responder> {
+        match database.add_many_recipes(recipes.into_inner()).await {
             Some(bson) => Either::A(HttpResponse::Ok().json(bson)),
             None => Either::B(HttpResponse::InternalServerError())
         }
     }
 
-    pub async fn get_one_recipe(req: HttpRequest, data: web::Data<Dao>) -> Either<impl Responder, impl Responder> {
+    pub async fn get_one_recipe(req: HttpRequest, database: web::Data<Dao>) -> Either<impl Responder, impl Responder> {
         let id = match extract_id_from_req(req) {
             Ok(id) => id,
             Err(bad_request) => return Either::A(bad_request)
         };
 
-        match data.get_one_recipe(id).await {
+        match database.get_one_recipe(id).await {
             Some(recipe_option) => match recipe_option {
                 Some(recipe) => Either::B(HttpResponse::Ok().json(recipe)),
                 None => Either::A(HttpResponse::NotFound())
@@ -56,16 +57,16 @@ impl RecipeRoutes {
         }
     }
 
-    pub async fn get_many_recipes(params: Query<Pagination>, data: web::Data<Dao>) -> Either<impl Responder, impl Responder> {
+    pub async fn get_many_recipes(params: Query<Pagination>, database: web::Data<Dao>) -> Either<impl Responder, impl Responder> {
         return if params.is_fully_set() {
             info!("get recipes with pagination: {:?}", params);
-            match data.get_many_recipes(Some(params.0)).await {
+            match database.get_many_recipes(Some(params.0)).await {
                 Some(recipes) => Either::A(HttpResponse::Ok().json(recipes)),
                 None => Either::B(HttpResponse::InternalServerError())
             }
         } else if params.is_fully_empty() {
             info!("get recipes no pagination");
-            match data.get_many_recipes(None).await {
+            match database.get_many_recipes(None).await {
                 Some(recipes) => Either::A(HttpResponse::Ok().json(recipes)),
                 None => Either::B(HttpResponse::InternalServerError())
             }
@@ -79,11 +80,25 @@ impl RecipeRoutes {
 
 fn extract_id_from_req(req: HttpRequest) -> Result<String, HttpResponseBuilder> {
     match req.match_info().get("id") {
-        Some(id) => Ok(id.to_string()),
+        Some(id) => {
+            if is_valid_object_id(id) {
+                Ok(id.to_string())
+            } else {
+                error!("Error provided id is no Object id");
+                return Err(HttpResponse::BadRequest());
+            }
+        }
         None => {
             error!("Error getting id param from HTTP request={:#?}", req);
             return Err(HttpResponse::BadRequest());
         }
+    }
+}
+
+fn is_valid_object_id(id: &str) -> bool {
+    match ObjectId::with_string(&id) {
+        Ok(_) => true,
+        Err(_) => false
     }
 }
 
@@ -92,14 +107,41 @@ fn extract_id_from_req(req: HttpRequest) -> Result<String, HttpResponseBuilder> 
 mod tests {
     use actix_web::{App, test, web};
     use bson::Bson;
+    use serial_test::serial;
 
     use crate::{Dao, init_logger};
-    use crate::dao::dao_tests::{clean_up, init_test_database};
+    use crate::dao::dao_tests::{before, cleanup_after};
     use crate::dao::get_one_recipe;
-    use crate::recipe_routes::{add_many_recipes, add_one_recipe, get_many_recipes, get_one_recipe, update_one_recipe};
+    use crate::recipe_routes::RecipeRoutes;
 
     fn create_many_recipes() -> Bson {
-        let vector = vec!(bson!(
+        let vector = vec!(create_one_recipe_no_ingredients(),
+                          create_one_recipe_with_ingredients(),
+                          create_one_recipe_with_ingredients()
+        );
+        return Bson::Array(vector);
+    }
+
+    fn create_one_recipe_no_ingredients() -> Bson {
+        bson!(
+        {
+            "cookingTimeInMinutes": 12,
+            "created": "2020-09-11T12:21:21+00:00",
+            "lastModified": "2020-09-11T12:21:21+00:00",
+            "ingredients": [],
+            "version": 1,
+            "difficulty": "Easy",
+            "description": "",
+            "title": "Spaghetti",
+            "tags": [],
+            "image": null,
+            "instructions": [],
+            "defaultServings": 2
+        })
+    }
+
+    fn create_one_recipe_with_ingredients() -> Bson {
+        bson!(
         {
             "cookingTimeInMinutes": 12,
             "created": "2020-09-11T12:21:21+00:00",
@@ -126,65 +168,17 @@ mod tests {
             "image": null,
             "instructions": [],
             "defaultServings": 2
-        }),
-                          bson!({
-            "cookingTimeInMinutes": 12,
-            "created": "2020-09-11T12:21:21+00:00",
-            "lastModified": "2020-09-11T12:21:21+00:00",
-            "ingredients": [],
-            "version": 1,
-            "difficulty": "Easy",
-            "description": "",
-            "title": "Spaghetti",
-            "tags": [],
-            "image": null,
-            "instructions": [],
-            "defaultServings": 2
-        }),
-                          bson!({
-            "cookingTimeInMinutes": 12,
-            "created": "2020-09-11T12:21:21+00:00",
-            "lastModified": "2020-09-11T12:21:21+00:00",
-            "ingredients": [],
-            "version": 1,
-            "difficulty": "Easy",
-            "description": "",
-            "title": "Spaghetti",
-            "tags": [],
-            "image": null,
-            "instructions": [],
-            "defaultServings": 2
-        }));
-        return Bson::Array(vector);
-    }
-
-    fn create_one_recipe() -> Bson {
-        bson!(
-        {
-            "cookingTimeInMinutes": 12,
-            "created": "2020-09-11T12:21:21+00:00",
-            "lastModified": "2020-09-11T12:21:21+00:00",
-            "ingredients": [],
-            "version": 1,
-            "difficulty": "Easy",
-            "description": "",
-            "title": "Spaghetti",
-            "tags": [],
-            "image": null,
-            "instructions": [],
-            "defaultServings": 2
         })
     }
 
     #[actix_rt::test]
+    #[serial]
     async fn test_add_single_recipe() {
-        let db = init_test_database().await.unwrap();
-
-        init_logger();
+        let dao = before().await;
 
         let mut app = test::init_service(App::new()
-            .data(Dao { database: db.clone() })
-            .route("/addOneRecipe", web::post().to(add_one_recipe))).await;
+            .data(dao.clone())
+            .route("/addOneRecipe", web::post().to(RecipeRoutes::add_one_recipe))).await;
 
         let req = test::TestRequest::post().uri("/addOneRecipe").to_request();
         let resp = test::call_service(&mut app, req).await;
@@ -196,29 +190,37 @@ mod tests {
         let resp = test::call_service(&mut app, req).await;
         assert!(resp.status().is_client_error(), "{}", resp.status());
 
-        let payload = create_one_recipe();
+        let payload = create_one_recipe_no_ingredients();
         let req = test::TestRequest::post()
             .set_json(&payload).uri("/addOneRecipe").to_request();
         let resp = test::call_service(&mut app, req).await;
         println!("{:#?}", resp);
         assert!(resp.status().is_success(), "{}", resp.status());
 
-        clean_up(db).await;
+        let payload = create_one_recipe_with_ingredients();
+        let req = test::TestRequest::post()
+            .set_json(&payload).uri("/addOneRecipe").to_request();
+        let resp = test::call_service(&mut app, req).await;
+        println!("{:#?}", resp);
+        assert!(resp.status().is_success(), "{}", resp.status());
+
+        cleanup_after(dao).await;
     }
 
     #[actix_rt::test]
+    #[serial]
     async fn test_add_many_recipes() {
-        let db = init_test_database().await.unwrap();
+        let dao = before().await;
 
         let mut app = test::init_service(App::new()
-            .data(Dao { database: db.clone() })
-            .route("/addManyRecipes", web::post().to(add_many_recipes))).await;
+            .data(dao.clone())
+            .route("/addManyRecipes", web::post().to(RecipeRoutes::add_many_recipes))).await;
 
         let req = test::TestRequest::post().uri("/addManyRecipes").to_request();
         let resp = test::call_service(&mut app, req).await;
         assert!(resp.status().is_client_error());
 
-        let payload = create_one_recipe();
+        let payload = create_one_recipe_no_ingredients();
         let req = test::TestRequest::post()
             .set_json(&payload)
             .uri("/addManyRecipes").to_request();
@@ -231,17 +233,19 @@ mod tests {
         let resp = test::call_service(&mut app, req).await;
         assert!(resp.status().is_success(), "{}", resp.status());
 
-        clean_up(db).await;
+        cleanup_after(dao).await;
     }
 
+
     #[actix_rt::test]
+    #[serial]
     async fn test_get_many_recipes() {
-        let db = init_test_database().await.unwrap();
+        let dao = before().await;
 
         let mut app = test::init_service(App::new()
-            .data(Dao { database: db.clone() })
-            .route("/recipes", web::get().to(get_many_recipes))
-            .route("/addManyRecipes", web::post().to(add_many_recipes))).await;
+            .data(dao.clone())
+            .route("/recipes", web::get().to(RecipeRoutes::get_many_recipes))
+            .route("/addManyRecipes", web::post().to(RecipeRoutes::add_many_recipes))).await;
 
         let req = test::TestRequest::get().uri("/recipes").to_request();
         let resp = test::call_service(&mut app, req).await;
@@ -263,24 +267,24 @@ mod tests {
         let resp = test::call_service(&mut app, req).await;
         assert!(resp.status().is_success(), "{}", resp.status());
 
-        clean_up(db).await;
+        cleanup_after(dao).await;
     }
 
     #[actix_rt::test]
+    #[serial]
     async fn test_get_one_recipe() {
-        let db = init_test_database().await.unwrap();
+        let dao = before().await;
 
-        init_logger();
         let mut app = test::init_service(App::new()
-            .data(Dao { database: db.clone() })
-            .route("/recipes/{id}", web::get().to(get_one_recipe))
-            .route("/recipes/{id}", web::post().to(add_one_recipe))).await;
+            .data(dao.clone())
+            .route("/recipes/{id}", web::get().to(RecipeRoutes::get_one_recipe))
+            .route("/recipes/{id}", web::post().to(RecipeRoutes::add_one_recipe))).await;
 
         let req = test::TestRequest::get().uri("/recipes/hello").to_request();
         let resp = test::call_service(&mut app, req).await;
         assert!(resp.status().is_client_error(), "{}", resp.status());
 
-        let payload = create_one_recipe().as_document().unwrap().clone();
+        let payload = create_one_recipe_no_ingredients().as_document().unwrap().clone();
 
         let req = test::TestRequest::post()
             .set_json(&payload).uri("/recipes/new").to_request();
@@ -290,7 +294,7 @@ mod tests {
         assert!(resp.status().is_success(), "{}", resp.status());
 
         let req = test::TestRequest::get().uri("/recipes/hello").to_request();
-        let resp = test::call_service(&mut app, req).await;
+        let mut resp = test::call_service(&mut app, req).await;
         // let body = resp.response_mut().take_body().try_fold(|e| e);
         // let x = body.as_ref().unwrap().to_owned();
         // let x1 = std::str::from_utf8(x).unwrap();
@@ -299,21 +303,20 @@ mod tests {
         assert!(resp.status().is_client_error(), "{}", resp.status());
 
 
-        clean_up(db).await;
+        cleanup_after(dao).await;
     }
 
     #[actix_rt::test]
     async fn test_update_one_recipe() {
-        let db = init_test_database().await.unwrap();
+        let dao = before().await;
 
         let mut app = test::init_service(App::new()
-            .data(Dao { database: db.clone() })
-            .route("/recipes/{id}", web::get().to(get_one_recipe))
-            .route("/recipes/{id}", web::post().to(add_one_recipe))
-            .route("/recipes/{id}", web::put().to(update_one_recipe))).await;
+            .data(dao.clone())
+            .route("/recipes/{id}", web::get().to(RecipeRoutes::get_one_recipe))
+            .route("/recipes/{id}", web::post().to(RecipeRoutes::add_one_recipe))
+            .route("/recipes/{id}", web::put().to(RecipeRoutes::update_one_recipe))).await;
 
-
-        let mut payload = create_one_recipe().as_document().unwrap().clone();
+        let mut payload = create_one_recipe_no_ingredients().as_document().unwrap().clone();
 
         let req = test::TestRequest::post()
             .set_json(&payload).uri("/recipes/new").to_request();
@@ -321,10 +324,10 @@ mod tests {
         let resp = test::call_service(&mut app, req).await;
         assert!(resp.status().is_success(), "{}", resp.status());
 
-        //todo get body from resp and extract id.
+        //     todo get body from resp and extract id.
 
         payload.insert("difficulty", "Medium");
-        let id = "id".to_string();
+        let id = "5f7333360051027600b01a36".to_string();
         let url = format!("/recipes/{}", id);
 
         let req = test::TestRequest::put().set_json(&payload).uri(&url).to_request();
@@ -334,6 +337,6 @@ mod tests {
         // todo check if recipe was updated
 
 
-        clean_up(db).await;
+        cleanup_after(dao).await;
     }
 }
