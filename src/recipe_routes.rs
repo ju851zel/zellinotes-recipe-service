@@ -121,7 +121,9 @@ fn is_valid_object_id(id: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use actix_web::{App, test, web};
-    use bson::Bson;
+    use actix_web::http::StatusCode;
+    use actix_web::web::Json;
+    use bson::{Bson, Document};
     use serial_test::serial;
 
     use crate::{Dao, init_logger};
@@ -218,6 +220,48 @@ mod tests {
         let resp = test::call_service(&mut app, req).await;
         println!("{:#?}", resp);
         assert!(resp.status().is_success(), "{}", resp.status());
+
+        cleanup_after(dao).await;
+    }
+
+    #[actix_rt::test]
+    #[serial]
+    async fn test_delete_single_recipe() {
+        let dao = before().await;
+
+        let mut app = test::init_service(App::new()
+            .data(dao.clone())
+            .route("/deleteOneRecipe/{id}", web::delete().to(RecipeRoutes::delete_one_recipe))
+            .route("/addOneRecipe", web::post().to(RecipeRoutes::add_one_recipe))).await;
+
+        let payload = create_one_recipe_with_ingredients();
+
+        let req = test::TestRequest::delete()
+            .set_json(&payload).uri("/deleteOneRecipe").to_request();
+        let resp = test::call_service(&mut app, req).await;
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+
+        let req = test::TestRequest::delete()
+            .set_json(&payload).uri("/deleteOneRecipe/hello").to_request();
+        let resp = test::call_service(&mut app, req).await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+
+        let req = test::TestRequest::delete()
+            .set_json(&payload).uri("/deleteOneRecipe/5f7333360051027600b01a36").to_request();
+        let resp = test::call_service(&mut app, req).await;
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+
+        let req = test::TestRequest::post()
+            .set_json(&payload).uri("/addOneRecipe").to_request();
+        let mut resp = test::call_service(&mut app, req).await;
+
+        let body: Bson = test::read_body_json(resp).await;
+        let inserted_id = body.as_object_id().unwrap().to_string();
+
+        let path = format!("/deleteOneRecipe/{}", inserted_id);
+        let req = test::TestRequest::delete().set_json(&payload).uri(&path).to_request();
+        let resp = test::call_service(&mut app, req).await;
+        assert_eq!(resp.status(), StatusCode::OK);
 
         cleanup_after(dao).await;
     }
