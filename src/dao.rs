@@ -1,5 +1,4 @@
 use std::convert::TryFrom;
-use std::sync::Arc;
 
 use bson::Document;
 use bson::oid::ObjectId;
@@ -12,15 +11,12 @@ use mongodb::options::ClientOptions;
 use crate::{LogExtensionErr, LogExtensionOk};
 use crate::model::recipe::{Recipe, RecipeFormatError};
 use crate::pagination::Pagination;
-use mongodb::results::DeleteResult;
 
 const RECIPE_COLLECTION: &str = "recipes";
 const URL: &str = "mongodb://localhost:26666";
 const APP_NAME: &str = "Zellinotes recipes";
 const DATABASE: &str = "zellinotes_recipes";
 
-
-type DaoError = String;
 
 #[derive(Clone)]
 pub struct Dao {
@@ -134,7 +130,7 @@ async fn add_many_recipes(db: &Database, recipes: Vec<Recipe>) -> Result<Bson, E
 
 pub async fn get_one_recipe(db: &Database, id: String) -> Result<Option<Recipe>, String> {
     let object_id = id_to_object_id(id.clone())
-        .map_err(|e| format!("id={:#?} not parsable to object id", id.clone()))?;
+        .map_err(|_| format!("id={:#?} not parsable to object id", id.clone()))?;
     let query = object_id_into_doc(object_id);
 
     return match db.collection(RECIPE_COLLECTION).find_one(query, None).await {
@@ -151,7 +147,7 @@ pub async fn get_one_recipe(db: &Database, id: String) -> Result<Option<Recipe>,
 
 pub async fn delete_one_recipe(db: &Database, id: String) -> Result<Option<()>, String> {
     let object_id = id_to_object_id(id.clone())
-        .map_err(|e| format!("id={:#?} not parsable to object id", id.clone()))?;
+        .map_err(|_| format!("id={:#?} not parsable to object id", id.clone()))?;
     let query = object_id_into_doc(object_id);
 
     return match db.collection(RECIPE_COLLECTION).delete_one(query, None).await {
@@ -160,11 +156,10 @@ pub async fn delete_one_recipe(db: &Database, id: String) -> Result<Option<()>, 
                 1 => Ok(Some(())),
                 _ => Ok(None),
             }
-        },
+        }
         Err(err) => Err(format!("{:#?}", err))
     };
 }
-
 
 
 pub async fn get_many_recipes(db: &Database, pagination: Option<Pagination>) -> Result<Vec<Recipe>, String> {
@@ -222,9 +217,8 @@ pub mod dao_tests {
     use mongodb::error::Error;
     use mongodb::options::ClientOptions;
     use serial_test::serial;
-    use simplelog::{CombinedLogger, Config, TerminalMode, TermLogger};
+    use simplelog::{ Config, TerminalMode, TermLogger};
 
-    use crate::{dao, init_logger};
     use crate::dao::Dao;
     use crate::model::difficulty::Difficulty;
     use crate::model::recipe::Recipe;
@@ -279,7 +273,7 @@ pub mod dao_tests {
     fn init_test_logger() {
         let _ = TermLogger::init(LevelFilter::Info,
                                  Config::default(),
-                                 TerminalMode::Mixed).unwrap_or_else(|e| ());
+                                 TerminalMode::Mixed).unwrap_or_else(|_| ());
     }
 
     pub async fn cleanup_after(dao: Dao) {
@@ -321,7 +315,7 @@ pub mod dao_tests {
     #[serial]
     async fn delete_one_recipe_test() {
         let dao = before().await;
-        let mut recipe = create_one_recipe();
+        let recipe = create_one_recipe();
         let result = dao.add_one_recipe(recipe.clone()).await.unwrap();
         let recipe_id = result.as_object_id().unwrap().to_string();
 
@@ -332,7 +326,7 @@ pub mod dao_tests {
         assert_eq!(result.is_none(), true);
 
         let result = dao.delete_one_recipe("5f7d1be300f9ff0e0049f573".to_string()).await;
-        assert_eq!(result.unwrap().is_some(), true);
+        assert_eq!(result.unwrap().is_none(), true);
 
         cleanup_after(dao).await;
     }

@@ -3,12 +3,9 @@ use actix_web::dev::HttpResponseBuilder;
 use actix_web::web::{Json, Query};
 use bson::oid::ObjectId;
 
-use crate::dao;
 use crate::dao::Dao;
 use crate::model::recipe::Recipe;
 use crate::pagination::Pagination;
-
-type RoutesError = String;
 
 pub struct RecipeRoutes {}
 
@@ -122,13 +119,10 @@ fn is_valid_object_id(id: &str) -> bool {
 mod tests {
     use actix_web::{App, test, web};
     use actix_web::http::StatusCode;
-    use actix_web::web::Json;
-    use bson::{Bson, Document};
+    use bson::Bson;
     use serial_test::serial;
 
-    use crate::{Dao, init_logger};
     use crate::dao::dao_tests::{before, cleanup_after};
-    use crate::dao::get_one_recipe;
     use crate::recipe_routes::RecipeRoutes;
 
     fn create_many_recipes() -> Bson {
@@ -253,7 +247,7 @@ mod tests {
 
         let req = test::TestRequest::post()
             .set_json(&payload).uri("/addOneRecipe").to_request();
-        let mut resp = test::call_service(&mut app, req).await;
+        let resp = test::call_service(&mut app, req).await;
 
         let body: Bson = test::read_body_json(resp).await;
         let inserted_id = body.as_object_id().unwrap().to_string();
@@ -353,7 +347,7 @@ mod tests {
         assert!(resp.status().is_success(), "{}", resp.status());
 
         let req = test::TestRequest::get().uri("/recipes/hello").to_request();
-        let mut resp = test::call_service(&mut app, req).await;
+        let resp = test::call_service(&mut app, req).await;
         // let body = resp.response_mut().take_body().try_fold(|e| e);
         // let x = body.as_ref().unwrap().to_owned();
         // let x1 = std::str::from_utf8(x).unwrap();

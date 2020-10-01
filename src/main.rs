@@ -7,7 +7,7 @@ extern crate simplelog;
 
 use std::fs::File;
 
-use actix_web::{App, error, http, HttpServer, web, HttpResponse, ResponseError};
+use actix_web::{App, error, HttpResponse, HttpServer, web};
 use actix_web::middleware::Logger;
 use simplelog::{CombinedLogger, Config, LevelFilter, TerminalMode, TermLogger, WriteLogger};
 
@@ -43,7 +43,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(web::JsonConfig::default()
                 .error_handler(|err, _req| {
                     error!("={:#?}", err);
-                    error::InternalError::from_response(err,HttpResponse::BadRequest().finish()).into()
+                    error::InternalError::from_response(err, HttpResponse::BadRequest().finish()).into()
                 }))
             .service(
                 web::scope("/api/v1")
