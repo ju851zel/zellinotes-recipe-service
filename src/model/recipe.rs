@@ -25,7 +25,7 @@ const JSON_ATTR_DEFAULT_SERVINGS: &str = "defaultServings";
 #[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
 pub struct Recipe {
     #[serde(skip_deserializing)]
-    #[serde(alias = "_id")]
+    #[serde(rename = "id")]
     pub _id: String,
     #[serde(rename = "cookingTimeInMinutes")]
     pub cooking_time_in_minutes: u32,
