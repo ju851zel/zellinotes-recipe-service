@@ -317,6 +317,26 @@ pub mod dao_tests {
         cleanup_after(dao).await;
     }
 
+    #[actix_rt::test]
+    #[serial]
+    async fn delete_one_recipe_test() {
+        let dao = before().await;
+        let mut recipe = create_one_recipe();
+        let result = dao.add_one_recipe(recipe.clone()).await.unwrap();
+        let recipe_id = result.as_object_id().unwrap().to_string();
+
+        let result = dao.delete_one_recipe(recipe_id.clone()).await;
+        assert_eq!(result.unwrap().is_some(), true);
+
+        let result = dao.delete_one_recipe("hello".to_string()).await;
+        assert_eq!(result.is_none(), true);
+
+        let result = dao.delete_one_recipe("5f7d1be300f9ff0e0049f573".to_string()).await;
+        assert_eq!(result.unwrap().is_some(), true);
+
+        cleanup_after(dao).await;
+    }
+
 
     #[actix_rt::test]
     #[serial]
