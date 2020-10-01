@@ -5,10 +5,10 @@ extern crate log;
 extern crate mongodb;
 extern crate simplelog;
 
-
 use std::fs::File;
 
-use actix_web::{App, HttpServer, web};
+use actix_web::{App, error, http, HttpServer, web, HttpResponse, ResponseError};
+use actix_web::middleware::Logger;
 use simplelog::{CombinedLogger, Config, LevelFilter, TerminalMode, TermLogger, WriteLogger};
 
 use crate::dao::Dao;
@@ -28,29 +28,42 @@ async fn main() -> std::io::Result<()> {
 
     let dao = Dao::new().await.unwrap();
 
-    let addr = "127.0.0.1:8088";
+    let addr = "127.0.0.1:8080";
 
     println!("Running on: {}", addr);
 
     HttpServer::new(move || {
         App::new()
+            .wrap(Logger::default())
+            .wrap(
+                actix_cors::Cors::new() // <- Construct CORS middleware builder
+                    .max_age(3600)
+                    .finish())
             .data(dao.clone())
+            .app_data(web::JsonConfig::default()
+                .error_handler(|err, _req| {
+                    error!("={:#?}", err);
+                    error::InternalError::from_response(err,HttpResponse::BadRequest().finish()).into()
+                }))
             .service(
                 web::scope("/api/v1")
                     .service(web::resource("/recipes")
                         .route(web::get().to(RecipeRoutes::get_many_recipes))
-                        .route(web::post().to(RecipeRoutes::add_many_recipes)))
-                    .service(web::resource("/recipes/{id}")
                         .route(web::post().to(RecipeRoutes::add_one_recipe))
-                        .route(web::get().to(RecipeRoutes::get_one_recipe))
-                        .route(web::put().to(RecipeRoutes::update_one_recipe))
-                    )
+                        .route(web::post().to(RecipeRoutes::add_many_recipes))
+                    ).service(web::resource("/recipes/{id}")
+                    .route(web::get().to(RecipeRoutes::get_one_recipe))
+                    .route(web::put().to(RecipeRoutes::update_one_recipe))
+                    .route(web::delete().to(RecipeRoutes::delete_one_recipe))
+                )
             )
     }).bind(addr)?.run().await
 }
 
 
 fn init_logger() {
+    std::env::set_var("RUST_LOG", "actix_web=trace");
+
     CombinedLogger::init(
         vec![
             TermLogger::new(LevelFilter::Info,

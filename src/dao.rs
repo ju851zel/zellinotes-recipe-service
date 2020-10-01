@@ -12,6 +12,7 @@ use mongodb::options::ClientOptions;
 use crate::{LogExtensionErr, LogExtensionOk};
 use crate::model::recipe::{Recipe, RecipeFormatError};
 use crate::pagination::Pagination;
+use mongodb::results::DeleteResult;
 
 const RECIPE_COLLECTION: &str = "recipes";
 const URL: &str = "mongodb://localhost:26666";
@@ -23,15 +24,18 @@ type DaoError = String;
 
 #[derive(Clone)]
 pub struct Dao {
-    pub(crate) database: Database
+    pub database: Database
 }
 
 impl Dao {
-    pub async fn new() -> Option<Database> {
-        get_db_handler().await
+    pub async fn new() -> Option<Self> {
+        match get_db_handler().await
             .log_if_ok(|_| info!("Created database handler"))
             .log_if_err(|err| error!("Could not create database handler. Err={}", err))
-            .ok()
+            .ok() {
+            Some(database) => Some(Self { database }),
+            None => None
+        }
     }
 
     pub async fn update_one_recipe(&self, id: String, recipe: Recipe) -> Option<Option<()>> {
@@ -43,7 +47,7 @@ impl Dao {
 
     pub async fn add_one_recipe(&self, recipe: Recipe) -> Option<Bson> {
         add_one_recipe(&self.database, recipe.clone()).await
-            .log_if_ok(|id| info!("Added recipe in db. id={:#?}", id))
+            .log_if_ok(|id| info!("Added recipe in db. id={:?}", id))
             .log_if_err(|err| error!("Could not add recipe={:#?}, Err={:#?}", recipe, err))
             .ok()
     }
@@ -62,9 +66,16 @@ impl Dao {
             .ok()
     }
 
+    pub async fn delete_one_recipe(&self, id: String) -> Option<Option<()>> {
+        delete_one_recipe(&self.database, id.clone()).await
+            .log_if_ok(|_| info!("Deleted one recipe from db. id={:#?}", id))
+            .log_if_err(|err| error!("{} id={:#?}", err, id))
+            .ok()
+    }
+
     pub async fn get_many_recipes(&self, pagination: Option<Pagination>) -> Option<Vec<Recipe>> {
         get_many_recipes(&self.database, pagination).await
-            .log_if_ok(|ids| info!("Get many recipes from db. ids={:#?}", ids))
+            .log_if_ok(|recipes| info!("Get many recipes from db. ids={:#?}", recipes))
             .log_if_err(|err| error!("{}", err))
             .ok()
     }
@@ -137,6 +148,23 @@ pub async fn get_one_recipe(db: &Database, id: String) -> Result<Option<Recipe>,
         Err(err) => Err(format!("{:#?}", err))
     };
 }
+
+pub async fn delete_one_recipe(db: &Database, id: String) -> Result<Option<()>, String> {
+    let object_id = id_to_object_id(id.clone())
+        .map_err(|e| format!("id={:#?} not parsable to object id", id.clone()))?;
+    let query = object_id_into_doc(object_id);
+
+    return match db.collection(RECIPE_COLLECTION).delete_one(query, None).await {
+        Ok(delete_result) => {
+            match delete_result.deleted_count {
+                1 => Ok(Some(())),
+                _ => Ok(None),
+            }
+        },
+        Err(err) => Err(format!("{:#?}", err))
+    };
+}
+
 
 
 pub async fn get_many_recipes(db: &Database, pagination: Option<Pagination>) -> Result<Vec<Recipe>, String> {

@@ -35,6 +35,21 @@ impl RecipeRoutes {
         }
     }
 
+    pub async fn delete_one_recipe(req: HttpRequest, database: web::Data<Dao>) -> impl Responder {
+        let id = match extract_id_from_req(req) {
+            Ok(id) => id,
+            Err(bad_request) => return bad_request
+        };
+
+        match database.delete_one_recipe(id).await {
+            Some(recipe_option) => match recipe_option {
+                Some(_) => HttpResponse::Ok(),
+                None => HttpResponse::NotFound()
+            }
+            None => HttpResponse::InternalServerError()
+        }
+    }
+
     pub async fn add_many_recipes(database: web::Data<Dao>, recipes: Json<Vec<Recipe>>) -> Either<impl Responder, impl Responder> {
         match database.add_many_recipes(recipes.into_inner()).await {
             Some(bson) => Either::A(HttpResponse::Ok().json(bson)),
