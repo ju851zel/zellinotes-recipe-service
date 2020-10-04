@@ -1,12 +1,14 @@
 use std::convert::TryFrom;
 
 use bson::{Bson, Document};
+use bson::oid::ObjectId;
 use chrono::{DateTime, Utc};
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer, Serializer};
 use serde::Serialize;
 
 use crate::model::difficulty::Difficulty;
 use crate::model::ingredients::Ingredient;
+use serde::de::Error;
 
 const JSON_ATTR_ID: &str = "_id";
 const JSON_ATTR_COOKING_TIME: &str = "cookingTimeInMinutes";
@@ -26,7 +28,8 @@ const JSON_ATTR_DEFAULT_SERVINGS: &str = "defaultServings";
 pub struct Recipe {
     #[serde(skip_deserializing)]
     #[serde(rename = "id")]
-    pub _id: String,
+    #[serde(serialize_with = "serialize_object_id")]
+    pub _id: ObjectId,
     #[serde(rename = "cookingTimeInMinutes")]
     pub cooking_time_in_minutes: u32,
     pub created: DateTime<Utc>,
@@ -38,11 +41,40 @@ pub struct Recipe {
     pub description: String,
     pub title: String,
     pub tags: Vec<String>,
-    pub image: Option<String>,
+    #[serde(rename = "image")]
+    #[serde(serialize_with = "serialize_image_oid")]
+    #[serde(deserialize_with = "deserialize_image_oid")]
+    pub image_oid: Option<ObjectId>,
     pub instructions: Vec<String>,
     #[serde(rename = "defaultServings")]
     pub default_servings: u32,
 }
+
+
+fn serialize_object_id<S>(oid: &ObjectId, ser: S) -> Result<S::Ok, S::Error> where S: Serializer {
+    oid.to_string().serialize(ser)
+}
+
+
+fn serialize_image_oid<S>(oid: &Option<ObjectId>, ser: S) -> Result<S::Ok, S::Error> where S: Serializer {
+    match oid {
+        Some(oid) => oid.to_string().serialize(ser),
+        None => Bson::Null.serialize(ser)
+    }
+}
+
+fn deserialize_image_oid<'de, D>(des: D) -> Result<Option<ObjectId>, D::Error> where D: Deserializer<'de> {
+    let bson = Bson::deserialize(des)?;
+    match bson {
+        Bson::Null => {Ok(None)},
+        Bson::String(s) => match ObjectId::with_string(&s) {
+            Ok(oid) => {Ok(Some(oid))},
+            Err(err) =>  Err(D::Error::custom("")),
+        }
+        _ => Err(D::Error::custom(""))
+    }
+}
+
 
 #[derive(Debug, Serialize)]
 pub struct RecipeFormatError { pub error: String }
@@ -70,7 +102,7 @@ impl TryFrom<Document> for Recipe {
             description: Recipe::extract_description(&doc)?,
             title: Recipe::extract_title(&doc)?,
             tags: Recipe::extract_tags(&doc)?,
-            image: Recipe::extract_image(&doc)?,
+            image_oid: Recipe::extract_image(&doc)?,
             instructions: Recipe::extract_instructions(&doc)?,
             default_servings: Recipe::extract_default_servings(&doc)?,
         });
@@ -90,7 +122,7 @@ impl From<Recipe> for Document {
         doc.insert(JSON_ATTR_DESCRIPTION, recipe.description);
         doc.insert(JSON_ATTR_TITLE, recipe.title);
         doc.insert(JSON_ATTR_TAGS, recipe.tags);
-        doc.insert(JSON_ATTR_IMAGE, if recipe.image.is_some() { Bson::String(recipe.image.unwrap()) } else { Bson::Null });
+        doc.insert(JSON_ATTR_IMAGE, recipe.image_oid.map_or_else(|| Bson::Null, |oid| Bson::ObjectId(oid)));
         doc.insert(JSON_ATTR_INSTRUCTIONS, recipe.instructions);
         doc.insert(JSON_ATTR_DEFAULT_SERVINGS, recipe.default_servings);
         doc
@@ -122,14 +154,12 @@ impl Recipe {
             })?
     }
 
-    fn extract_image(doc: &Document) -> Result<Option<String>, RecipeFormatError> {
-        doc.get(JSON_ATTR_IMAGE)
-            .ok_or_else(|| RecipeFormatError::from("Error getting image from document"))
-            .map(|image| Ok(if *image == Bson::Null {
-                None
-            } else {
-                Some(image.as_str().unwrap().to_string())
-            }))?
+    fn extract_image(doc: &Document) -> Result<Option<ObjectId>, RecipeFormatError> {
+        match doc.get(JSON_ATTR_IMAGE) {
+            Some(Bson::Null) => Ok(None),
+            Some(Bson::ObjectId(oid)) => Ok(Some(oid.to_owned())),
+            _ => Err(RecipeFormatError::from("Error getting image from document"))
+        }
     }
 
     fn extract_instructions(doc: &Document) -> Result<Vec<String>, RecipeFormatError> {
@@ -188,9 +218,9 @@ impl Recipe {
             .map_err(|_| RecipeFormatError::from("Error getting cooking timefrom document"))
     }
 
-    fn extract_id(doc: &Document) -> Result<String, RecipeFormatError> {
+    fn extract_id(doc: &Document) -> Result<ObjectId, RecipeFormatError> {
         doc.get_object_id(JSON_ATTR_ID)
-            .map(|x| x.to_string())
+            .map(|x| x.to_owned())
             .map_err(|_| RecipeFormatError::from("Error getting  Object Id document"))
     }
 }
@@ -279,8 +309,9 @@ mod convert_tests {
     #[test]
     fn basic_recipe_from_document_with_image() {
         let mut doc = create_basic_recipe_doc();
-        doc.insert(JSON_ATTR_IMAGE,
-                   "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2Q==");
+        let image = Some("/9j/4AAQSkZJRgABAQAAAQABAAD/2Q==".to_string());
+        let image = Recipe::image_insert(&image).unwrap();
+        doc.insert(JSON_ATTR_IMAGE, image);
         let result = Recipe::try_from(doc);
         assert_eq!(result.is_ok(), true, "{}", result.err().unwrap().error);
     }
@@ -296,7 +327,7 @@ mod convert_tests {
     #[test]
     fn document_from_recipe() {
         let recipe: Recipe = create_basic_recipe_doc().try_into().unwrap();
-        let result = Document::from(recipe);
+        let result = Document::try_from(recipe).unwrap();
         assert_eq!(result.is_empty(), false);
     }
 }

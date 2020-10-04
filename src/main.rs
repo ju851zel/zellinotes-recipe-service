@@ -1,5 +1,6 @@
 #[macro_use]
 extern crate log;
+#[macro_use]
 extern crate bson;
 extern crate mongodb;
 extern crate simplelog;

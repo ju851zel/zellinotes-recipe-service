@@ -230,7 +230,7 @@ pub mod dao_tests {
 
     pub fn create_one_recipe() -> Recipe {
         Recipe {
-            _id: "".to_string(),
+            _id: ObjectId::new(),
             cooking_time_in_minutes: 10,
             created: Utc::now().with_nanosecond(0).unwrap(),
             last_modified: Utc::now().with_nanosecond(0).unwrap(),
@@ -240,7 +240,7 @@ pub mod dao_tests {
             description: "".to_string(),
             title: "".to_string(),
             tags: vec![],
-            image: None,
+            image_oid: None,
             instructions: vec![],
             default_servings: 1,
         }
@@ -435,7 +435,7 @@ pub mod dao_tests {
             sorting: Some(sorting),
         })).await.unwrap();
         let read_recipes: Vec<Recipe> = read_recipes.into_iter().map(|mut r| {
-            r._id = "".to_string();
+            r._id = ObjectId::new();
             r
         }).collect();
 
