@@ -69,7 +69,7 @@ fn deserialize_image_oid<'de, D>(des: D) -> Result<Option<ObjectId>, D::Error> w
         Bson::Null => {Ok(None)},
         Bson::String(s) => match ObjectId::with_string(&s) {
             Ok(oid) => {Ok(Some(oid))},
-            Err(err) =>  Err(D::Error::custom("")),
+            Err(_) =>  Err(D::Error::custom("")),
         }
         _ => Err(D::Error::custom(""))
     }
@@ -309,9 +309,7 @@ mod convert_tests {
     #[test]
     fn basic_recipe_from_document_with_image() {
         let mut doc = create_basic_recipe_doc();
-        let image = Some("/9j/4AAQSkZJRgABAQAAAQABAAD/2Q==".to_string());
-        let image = Recipe::image_insert(&image).unwrap();
-        doc.insert(JSON_ATTR_IMAGE, image);
+        doc.insert(JSON_ATTR_IMAGE, Bson::ObjectId(ObjectId::new()));
         let result = Recipe::try_from(doc);
         assert_eq!(result.is_ok(), true, "{}", result.err().unwrap().error);
     }
@@ -327,7 +325,7 @@ mod convert_tests {
     #[test]
     fn document_from_recipe() {
         let recipe: Recipe = create_basic_recipe_doc().try_into().unwrap();
-        let result = Document::try_from(recipe).unwrap();
+        let result = Document::from(recipe);
         assert_eq!(result.is_empty(), false);
     }
 }
@@ -420,11 +418,15 @@ mod recipe_tests {
 
         doc.insert(JSON_ATTR_IMAGE, "image");
         let result = Recipe::extract_image(&doc);
-        assert_eq!(result.unwrap().is_some(), true);
+        assert!(result.is_err());
 
         doc.insert(JSON_ATTR_IMAGE, "");
         let result = Recipe::extract_image(&doc);
-        assert_eq!(result.unwrap().is_some(), true);
+        assert!(result.is_err());
+
+        doc.insert(JSON_ATTR_IMAGE, Bson::ObjectId(ObjectId::new()));
+        let result = Recipe::extract_image(&doc);
+        assert!(result.is_ok());
 
         doc.remove(JSON_ATTR_IMAGE);
         let result = Recipe::extract_image(&doc);

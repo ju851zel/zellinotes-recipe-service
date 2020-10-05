@@ -1,4 +1,4 @@
-use std::convert::TryFrom;
+use std::convert::{TryFrom};
 
 use bson::Document;
 use bson::oid::ObjectId;
@@ -214,7 +214,7 @@ pub mod dao_tests {
     use mongodb::error::Error;
     use mongodb::options::ClientOptions;
     use serial_test::serial;
-    use simplelog::{ Config, TerminalMode, TermLogger};
+    use simplelog::{Config, TerminalMode, TermLogger};
 
     use crate::dao::Dao;
     use crate::model::difficulty::Difficulty;
@@ -414,8 +414,9 @@ pub mod dao_tests {
 
         let recipe_found = dao.get_one_recipe(inserted_oid.clone())
             .await.unwrap();
+
         assert_eq!(recipe_found.is_some(), true);
-        assert_eq!(recipe_found.unwrap()._id, inserted_oid);
+        assert_eq!(recipe_found.unwrap()._id, ObjectId::with_string(&inserted_oid).unwrap());
 
         cleanup_after(dao).await;
     }
