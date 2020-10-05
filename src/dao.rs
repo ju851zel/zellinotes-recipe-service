@@ -174,35 +174,32 @@ pub async fn get_many_recipes(db: &Database, pagination: Option<Pagination>) -> 
 
     return match db.collection(RECIPE_COLLECTION).find(None, find_options).await {
         Ok(cursor) => {
-            let (correct_recipes, wrong_recipes): (Vec<_>, Vec<_>) =
-                cursor
-                    .skip(skip)
-                    .take(take)
-                    .collect::<Vec<Result<Document, Error>>>().await
-                    .into_iter()
-                    .partition(Result::is_ok);
+            let recipes = cursor
+                .skip(skip)
+                .take(take)
+                .collect::<Vec<Result<Document, Error>>>()
+                .await
+                .into_iter()
+                .collect::<Result<Vec<Document>, Error>>();
 
-            for doc in wrong_recipes {
-                error!("Error reading recipe document from db: {:?}", doc.err().unwrap())
+            let recipes: Vec<Document> = match recipes {
+                Ok(recipes) => recipes,
+                Err(err) => return Err(format!("Could not get all recipes from db, err={:#?}", err))
+            };
+
+
+            let recipes: Result<Vec<Recipe>, RecipeFormatError> = recipes
+                .into_iter()
+                .map(|recipe| Recipe::try_from(recipe))
+                .collect();
+
+            match recipes {
+                Ok(recipes) => Ok(recipes),
+                Err(err) => return Err(format!("Could not get all recipes from db, err={}", err.error))
             }
-
-            let (correct_recipes,
-                broken_recipes) = docs_to_recipes(correct_recipes);
-
-            for recipe in broken_recipes {
-                error!("Error converting recipe document to recipe: {:?}", recipe.err().unwrap())
-            }
-
-            Ok(correct_recipes.into_iter().map(|r| r.unwrap()).collect())
         }
-        Err(_) => Err(format!("Could not get all recipes from db"))
+        Err(_) => Err(format!("Could not get all recipes from db, cursor error"))
     };
-}
-
-fn docs_to_recipes(correct_recipes: Vec<Result<Document, Error>>) -> (Vec<Result<Recipe, RecipeFormatError>>, Vec<Result<Recipe, RecipeFormatError>>) {
-    correct_recipes.into_iter()
-        .map(|x| Recipe::try_from(x.unwrap()))
-        .partition(Result::is_ok)
 }
 
 
