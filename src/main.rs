@@ -1,7 +1,7 @@
 #[macro_use]
-extern crate log;
-#[macro_use]
 extern crate bson;
+#[macro_use]
+extern crate log;
 extern crate mongodb;
 extern crate simplelog;
 
@@ -15,10 +15,8 @@ use crate::dao::Dao;
 use crate::recipe_routes::RecipeRoutes;
 
 mod model;
-
 mod dao;
 mod pagination;
-
 mod recipe_routes;
 
 
@@ -40,7 +38,7 @@ async fn main() -> std::io::Result<()> {
                     .max_age(3600)
                     .finish())
             .data(dao.clone())
-            .app_data(web::JsonConfig::default()
+            .app_data(web::JsonConfig::default().limit(1048576)
                 .error_handler(|err, _req| {
                     error!("={:#?}", err);
                     error::InternalError::from_response(err, HttpResponse::BadRequest().finish()).into()
@@ -51,11 +49,17 @@ async fn main() -> std::io::Result<()> {
                         .route(web::get().to(RecipeRoutes::get_many_recipes))
                         .route(web::post().to(RecipeRoutes::add_one_recipe))
                         .route(web::post().to(RecipeRoutes::add_many_recipes))
-                    ).service(web::resource("/recipes/{id}")
-                    .route(web::get().to(RecipeRoutes::get_one_recipe))
-                    .route(web::put().to(RecipeRoutes::update_one_recipe))
-                    .route(web::delete().to(RecipeRoutes::delete_one_recipe))
-                )
+                    )
+                    .service(web::resource("/recipes/{id}")
+                        .route(web::get().to(RecipeRoutes::get_one_recipe_without_image))
+                        .route(web::put().to(RecipeRoutes::update_one_recipe_without_image))
+                        .route(web::delete().to(RecipeRoutes::delete_one_recipe))
+                    )
+                    .service(web::resource("/recipes/{id}/image")
+                        .route(web::get().to(RecipeRoutes::get_one_recipe_image))
+                        .route(web::put().to(RecipeRoutes::update_one_recipe_image))
+                        .route(web::delete().to(RecipeRoutes::delete_one_recipe_image))
+                    )
             )
     }).bind(addr)?.run().await
 }

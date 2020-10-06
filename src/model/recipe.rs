@@ -3,12 +3,11 @@ use std::convert::TryFrom;
 use bson::{Bson, Document};
 use bson::oid::ObjectId;
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Deserializer, Serializer};
+use serde::{Deserialize, Serializer};
 use serde::Serialize;
 
 use crate::model::difficulty::Difficulty;
 use crate::model::ingredients::Ingredient;
-use serde::de::Error;
 
 const JSON_ATTR_ID: &str = "_id";
 const JSON_ATTR_COOKING_TIME: &str = "cookingTimeInMinutes";
@@ -42,9 +41,8 @@ pub struct Recipe {
     pub title: String,
     pub tags: Vec<String>,
     #[serde(rename = "image")]
-    #[serde(serialize_with = "serialize_image_oid")]
-    #[serde(deserialize_with = "deserialize_image_oid")]
-    pub image_oid: Option<ObjectId>,
+    #[serde(skip_deserializing)]
+    pub image_base64: Option<String>,
     pub instructions: Vec<String>,
     #[serde(rename = "defaultServings")]
     pub default_servings: u32,
@@ -53,26 +51,6 @@ pub struct Recipe {
 
 fn serialize_object_id<S>(oid: &ObjectId, ser: S) -> Result<S::Ok, S::Error> where S: Serializer {
     oid.to_string().serialize(ser)
-}
-
-
-fn serialize_image_oid<S>(oid: &Option<ObjectId>, ser: S) -> Result<S::Ok, S::Error> where S: Serializer {
-    match oid {
-        Some(oid) => oid.to_string().serialize(ser),
-        None => Bson::Null.serialize(ser)
-    }
-}
-
-fn deserialize_image_oid<'de, D>(des: D) -> Result<Option<ObjectId>, D::Error> where D: Deserializer<'de> {
-    let bson = Bson::deserialize(des)?;
-    match bson {
-        Bson::Null => {Ok(None)},
-        Bson::String(s) => match ObjectId::with_string(&s) {
-            Ok(oid) => {Ok(Some(oid))},
-            Err(_) =>  Err(D::Error::custom("")),
-        }
-        _ => Err(D::Error::custom(""))
-    }
 }
 
 
@@ -102,7 +80,7 @@ impl TryFrom<Document> for Recipe {
             description: Recipe::extract_description(&doc)?,
             title: Recipe::extract_title(&doc)?,
             tags: Recipe::extract_tags(&doc)?,
-            image_oid: Recipe::extract_image(&doc)?,
+            image_base64: Recipe::extract_image(&doc)?,
             instructions: Recipe::extract_instructions(&doc)?,
             default_servings: Recipe::extract_default_servings(&doc)?,
         });
@@ -122,7 +100,7 @@ impl From<Recipe> for Document {
         doc.insert(JSON_ATTR_DESCRIPTION, recipe.description);
         doc.insert(JSON_ATTR_TITLE, recipe.title);
         doc.insert(JSON_ATTR_TAGS, recipe.tags);
-        doc.insert(JSON_ATTR_IMAGE, recipe.image_oid.map_or_else(|| Bson::Null, |oid| Bson::ObjectId(oid)));
+        doc.insert(JSON_ATTR_IMAGE, recipe.image_base64.map_or_else(|| Bson::Null, |oid| Bson::String(oid)));
         doc.insert(JSON_ATTR_INSTRUCTIONS, recipe.instructions);
         doc.insert(JSON_ATTR_DEFAULT_SERVINGS, recipe.default_servings);
         doc
@@ -130,6 +108,13 @@ impl From<Recipe> for Document {
 }
 
 impl Recipe {
+    pub fn default_projection_no_image() -> Document {
+        let mut doc = Document::new();
+        doc.insert(JSON_ATTR_IMAGE, 0);
+        return doc;
+    }
+
+
     fn extract_difficulty(doc: &Document) -> Result<Difficulty, RecipeFormatError> {
         doc.get_str(JSON_ATTR_DIFFICULTY)
             .map(Difficulty::try_from)
@@ -154,10 +139,12 @@ impl Recipe {
             })?
     }
 
-    fn extract_image(doc: &Document) -> Result<Option<ObjectId>, RecipeFormatError> {
+    /// returns image when set, when not set or not available return None, on Error RecipeFormatError
+    fn extract_image(doc: &Document) -> Result<Option<String>, RecipeFormatError> {
         match doc.get(JSON_ATTR_IMAGE) {
             Some(Bson::Null) => Ok(None),
-            Some(Bson::ObjectId(oid)) => Ok(Some(oid.to_owned())),
+            Some(Bson::String(image)) => Ok(Some(image.to_owned())),
+            None => Ok(None),
             _ => Err(RecipeFormatError::from("Error getting image from document"))
         }
     }
@@ -309,7 +296,7 @@ mod convert_tests {
     #[test]
     fn basic_recipe_from_document_with_image() {
         let mut doc = create_basic_recipe_doc();
-        doc.insert(JSON_ATTR_IMAGE, Bson::ObjectId(ObjectId::new()));
+        doc.insert(JSON_ATTR_IMAGE, "Image".to_string());
         let result = Recipe::try_from(doc);
         assert_eq!(result.is_ok(), true, "{}", result.err().unwrap().error);
     }
@@ -418,15 +405,7 @@ mod recipe_tests {
 
         doc.insert(JSON_ATTR_IMAGE, "image");
         let result = Recipe::extract_image(&doc);
-        assert!(result.is_err());
-
-        doc.insert(JSON_ATTR_IMAGE, "");
-        let result = Recipe::extract_image(&doc);
-        assert!(result.is_err());
-
-        doc.insert(JSON_ATTR_IMAGE, Bson::ObjectId(ObjectId::new()));
-        let result = Recipe::extract_image(&doc);
-        assert!(result.is_ok());
+        assert!(result.unwrap().is_some());
 
         doc.remove(JSON_ATTR_IMAGE);
         let result = Recipe::extract_image(&doc);

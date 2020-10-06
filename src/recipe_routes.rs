@@ -1,117 +1,145 @@
 use actix_web::{Either, HttpRequest, HttpResponse, Responder, web};
-use actix_web::dev::HttpResponseBuilder;
 use actix_web::web::{Json, Query};
 use bson::oid::ObjectId;
 
-use crate::dao::Dao;
+use crate::dao::{Dao, DaoError};
 use crate::model::recipe::Recipe;
 use crate::pagination::Pagination;
 
 pub struct RecipeRoutes {}
 
 impl RecipeRoutes {
-    pub async fn update_one_recipe(req: HttpRequest, database: web::Data<Dao>, recipe: Json<Recipe>) -> impl Responder {
+    pub async fn update_one_recipe_without_image(req: HttpRequest, database: web::Data<Dao>, recipe: Json<Recipe>) -> impl Responder {
         let id = match extract_id_from_req(req) {
-            Ok(id) => id,
-            Err(err) => return err
+            Some(id) => id,
+            None => return HttpResponse::BadRequest()
         };
 
-        match database.update_one_recipe(id, recipe.into_inner()).await {
-            Some(updated) => match updated {
-                Some(_) => HttpResponse::Ok(),
-                None => HttpResponse::NotFound(),
-            },
-            None => HttpResponse::InternalServerError()
+        match database.update_one_recipe_ignore_image(id, recipe.into_inner()).await {
+            Ok(_) => HttpResponse::Ok(),
+            Err(DaoError::DocumentNotFound) => HttpResponse::NotFound(),
+            Err(DaoError::DatabaseError(_)) => HttpResponse::InternalServerError(),
+            Err(DaoError::RecipeFormatError(_)) => HttpResponse::InternalServerError(),
         }
     }
 
     pub async fn add_one_recipe(database: web::Data<Dao>, recipe: Json<Recipe>) -> Either<impl Responder, impl Responder> {
         match database.add_one_recipe(recipe.into_inner()).await {
-            Some(bson) => Either::A(HttpResponse::Ok().json(bson)),
-            None => Either::B(HttpResponse::InternalServerError())
+            Ok(bson) => Either::A(HttpResponse::Ok().json(bson)),
+            Err(DaoError::DocumentNotFound) => Either::B(HttpResponse::NotFound()),
+            Err(DaoError::DatabaseError(_)) => Either::B(HttpResponse::InternalServerError()),
+            Err(DaoError::RecipeFormatError(_)) => Either::B(HttpResponse::InternalServerError()),
         }
     }
 
     pub async fn delete_one_recipe(req: HttpRequest, database: web::Data<Dao>) -> impl Responder {
         let id = match extract_id_from_req(req) {
-            Ok(id) => id,
-            Err(bad_request) => return bad_request
+            Some(id) => id,
+            None => return HttpResponse::BadRequest()
         };
 
         match database.delete_one_recipe(id).await {
-            Some(recipe_option) => match recipe_option {
-                Some(_) => HttpResponse::Ok(),
-                None => HttpResponse::NotFound()
-            }
-            None => HttpResponse::InternalServerError()
+            Ok(_) => HttpResponse::Ok(),
+            Err(DaoError::DocumentNotFound) => HttpResponse::NotFound(),
+            Err(DaoError::DatabaseError(_)) => HttpResponse::InternalServerError(),
+            Err(DaoError::RecipeFormatError(_)) => HttpResponse::InternalServerError(),
         }
+
     }
 
     pub async fn add_many_recipes(database: web::Data<Dao>, recipes: Json<Vec<Recipe>>) -> Either<impl Responder, impl Responder> {
         match database.add_many_recipes(recipes.into_inner()).await {
-            Some(bson) => Either::A(HttpResponse::Ok().json(bson)),
-            None => Either::B(HttpResponse::InternalServerError())
+            Ok(bson) => Either::A(HttpResponse::Ok().json(bson)),
+            Err(DaoError::DocumentNotFound) =>  Either::B(HttpResponse::NotFound()),
+            Err(DaoError::DatabaseError(_)) => Either::B(HttpResponse::InternalServerError()),
+            Err(DaoError::RecipeFormatError(_)) =>  Either::B(HttpResponse::InternalServerError()),
         }
     }
 
-    pub async fn get_one_recipe(req: HttpRequest, database: web::Data<Dao>) -> Either<impl Responder, impl Responder> {
+    pub async fn get_one_recipe_without_image(req: HttpRequest, database: web::Data<Dao>) -> Either<impl Responder, impl Responder> {
         let id = match extract_id_from_req(req) {
-            Ok(id) => id,
-            Err(bad_request) => return Either::A(bad_request)
+            Some(id) => id,
+            None => return Either::B(HttpResponse::BadRequest())
         };
 
-        match database.get_one_recipe(id).await {
-            Some(recipe_option) => match recipe_option {
-                Some(recipe) => Either::B(HttpResponse::Ok().json(recipe)),
-                None => Either::A(HttpResponse::NotFound())
-            }
-            None => Either::A(HttpResponse::InternalServerError())
+        match database.get_one_recipe_without_image(id).await {
+            Ok(recipe) => Either::A(HttpResponse::Ok().json(recipe)),
+            Err(DaoError::DocumentNotFound) =>  Either::B(HttpResponse::NotFound()),
+            Err(DaoError::DatabaseError(_)) => Either::B(HttpResponse::InternalServerError()),
+            Err(DaoError::RecipeFormatError(_)) =>  Either::B(HttpResponse::InternalServerError()),
+        }
+    }
+
+    pub async fn get_one_recipe_image(req: HttpRequest, database: web::Data<Dao>) -> Either<impl Responder, impl Responder> {
+        let id = match extract_id_from_req(req) {
+            Some(id) => id,
+            None => return Either::A(HttpResponse::BadRequest())
+        };
+
+        match database.get_one_recipe_image(id).await {
+            Ok(image) => Either::B(HttpResponse::Ok().body(image)),
+            Err(DaoError::DocumentNotFound) => Either::A(HttpResponse::NotFound()),
+            Err(DaoError::DatabaseError(_)) => Either::A(HttpResponse::InternalServerError()),
+            Err(DaoError::RecipeFormatError(_)) => Either::A(HttpResponse::InternalServerError()),
+        }
+    }
+
+    pub async fn update_one_recipe_image(req: HttpRequest, database: web::Data<Dao>, image: String) -> impl Responder {
+        let id = match extract_id_from_req(req) {
+            Some(id) => id,
+            None => return HttpResponse::BadRequest()
+        };
+
+        match database.update_one_recipe_image(id, Some(image)).await {
+            Ok(_) => HttpResponse::Ok(),
+            Err(DaoError::DocumentNotFound) => HttpResponse::NotFound(),
+            Err(DaoError::DatabaseError(_)) => HttpResponse::InternalServerError(),
+            Err(DaoError::RecipeFormatError(_)) => HttpResponse::InternalServerError(),
+        }
+    }
+
+    pub async fn delete_one_recipe_image(req: HttpRequest, database: web::Data<Dao>) -> impl Responder {
+        let id = match extract_id_from_req(req) {
+            Some(id) => id,
+            None => return HttpResponse::BadRequest()
+        };
+
+        match database.update_one_recipe_image(id, None).await {
+            Ok(_) => HttpResponse::Ok(),
+            Err(DaoError::DocumentNotFound) => HttpResponse::NotFound(),
+            Err(DaoError::DatabaseError(_)) => HttpResponse::InternalServerError(),
+            Err(DaoError::RecipeFormatError(_)) => HttpResponse::InternalServerError(),
         }
     }
 
     pub async fn get_many_recipes(params: Query<Pagination>, database: web::Data<Dao>) -> Either<impl Responder, impl Responder> {
-        return if params.is_fully_set() {
-            info!("get recipes with pagination: {:?}", params);
-            match database.get_many_recipes(Some(params.0)).await {
-                Some(recipes) => Either::A(HttpResponse::Ok().json(recipes)),
-                None => Either::B(HttpResponse::InternalServerError())
-            }
+        let result = if params.0.is_fully_set() {
+            database.get_many_recipes(Some(params.0)).await
         } else if params.is_fully_empty() {
-            info!("get recipes no pagination");
-            match database.get_many_recipes(None).await {
-                Some(recipes) => Either::A(HttpResponse::Ok().json(recipes)),
-                None => Either::B(HttpResponse::InternalServerError())
-            }
+            database.get_many_recipes(None).await
         } else {
-            error!("get recipes with wrong pagination: {:?}", params);
-            Either::B(HttpResponse::BadRequest())
+            return Either::B(HttpResponse::BadRequest());
         };
+
+        match result {
+            Ok(recipes) => Either::A(HttpResponse::Ok().json(recipes)),
+            Err(DaoError::DatabaseError(_)) => Either::B(HttpResponse::InternalServerError()),
+            Err(DaoError::DocumentNotFound) => Either::B(HttpResponse::NotFound()),
+            Err(DaoError::RecipeFormatError(_)) => Either::B(HttpResponse::InternalServerError()),
+        }
     }
 }
 
 
-fn extract_id_from_req(req: HttpRequest) -> Result<String, HttpResponseBuilder> {
+fn extract_id_from_req(req: HttpRequest) -> Option<ObjectId> {
     match req.match_info().get("id") {
-        Some(id) => {
-            if is_valid_object_id(id) {
-                Ok(id.to_string())
-            } else {
-                error!("Error provided id is no Object id");
-                return Err(HttpResponse::BadRequest());
-            }
+        Some(id) => match ObjectId::with_string(&id) {
+            Ok(oid) => return Some(oid),
+            _ => error!("Error provided id is no Object id")
         }
-        None => {
-            error!("Error getting id param from HTTP request={:#?}", req);
-            return Err(HttpResponse::BadRequest());
-        }
+        None => error!("Error getting id param from HTTP request={:#?}", req)
     }
-}
-
-fn is_valid_object_id(id: &str) -> bool {
-    match ObjectId::with_string(&id) {
-        Ok(_) => true,
-        Err(_) => false
-    }
+    return None;
 }
 
 
@@ -149,6 +177,12 @@ mod tests {
             "instructions": [],
             "defaultServings": 2
         })
+    }
+
+    fn create_one_recipe_with_image() -> Bson {
+        let bson = create_one_recipe_no_ingredients();
+        let mut doc = bson.as_document().unwrap().to_owned();
+        doc.insert("image", "image".to_string()).unwrap()
     }
 
     fn create_one_recipe_with_ingredients() -> Bson {
@@ -209,6 +243,13 @@ mod tests {
         assert!(resp.status().is_success(), "{}", resp.status());
 
         let payload = create_one_recipe_with_ingredients();
+        let req = test::TestRequest::post()
+            .set_json(&payload).uri("/addOneRecipe").to_request();
+        let resp = test::call_service(&mut app, req).await;
+        println!("{:#?}", resp);
+        assert!(resp.status().is_success(), "{}", resp.status());
+
+        let payload = create_one_recipe_with_image();
         let req = test::TestRequest::post()
             .set_json(&payload).uri("/addOneRecipe").to_request();
         let resp = test::call_service(&mut app, req).await;
@@ -330,7 +371,7 @@ mod tests {
 
         let mut app = test::init_service(App::new()
             .data(dao.clone())
-            .route("/recipes/{id}", web::get().to(RecipeRoutes::get_one_recipe))
+            .route("/recipes/{id}", web::get().to(RecipeRoutes::get_one_recipe_without_image))
             .route("/recipes/{id}", web::post().to(RecipeRoutes::add_one_recipe))).await;
 
         let req = test::TestRequest::get().uri("/recipes/hello").to_request();
@@ -365,9 +406,9 @@ mod tests {
 
         let mut app = test::init_service(App::new()
             .data(dao.clone())
-            .route("/recipes/{id}", web::get().to(RecipeRoutes::get_one_recipe))
+            .route("/recipes/{id}", web::get().to(RecipeRoutes::get_one_recipe_without_image))
             .route("/recipes/{id}", web::post().to(RecipeRoutes::add_one_recipe))
-            .route("/recipes/{id}", web::put().to(RecipeRoutes::update_one_recipe))).await;
+            .route("/recipes/{id}", web::put().to(RecipeRoutes::update_one_recipe_without_image))).await;
 
         let mut payload = create_one_recipe_no_ingredients().as_document().unwrap().clone();
 
