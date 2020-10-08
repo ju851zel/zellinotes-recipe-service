@@ -15,7 +15,7 @@ impl RecipeRoutes {
             None => return HttpResponse::BadRequest()
         };
 
-        match database.update_one_recipe_ignore_image(id, recipe.into_inner()).await {
+        match database.update_recipe_ignore_image(id, recipe.into_inner()).await {
             Ok(_) => HttpResponse::Ok(),
             Err(DaoError::DocumentNotFound) => HttpResponse::NotFound(),
             Err(DaoError::DatabaseError(_)) => HttpResponse::InternalServerError(),
@@ -24,7 +24,7 @@ impl RecipeRoutes {
     }
 
     pub async fn add_one_recipe(database: web::Data<Dao>, recipe: Json<Recipe>) -> Either<impl Responder, impl Responder> {
-        match database.add_one_recipe(recipe.into_inner()).await {
+        match database.insert_recipe(recipe.into_inner()).await {
             Ok(bson) => Either::A(HttpResponse::Ok().json(bson)),
             Err(DaoError::DocumentNotFound) => Either::B(HttpResponse::NotFound()),
             Err(DaoError::DatabaseError(_)) => Either::B(HttpResponse::InternalServerError()),

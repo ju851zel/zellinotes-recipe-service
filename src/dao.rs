@@ -32,25 +32,6 @@ pub enum DaoError {
     RecipeFormatError(String),
 }
 
-
-impl From<Error> for DaoError {
-    fn from(error: Error) -> Self {
-        DaoError::DatabaseError(format!("{:#?}", error))
-    }
-}
-
-impl From<ValueAccessError> for DaoError {
-    fn from(error: ValueAccessError) -> Self {
-        DaoError::DatabaseError(format!("{:#?}", error))
-    }
-}
-
-impl From<RecipeFormatError> for DaoError {
-    fn from(error: RecipeFormatError) -> Self {
-        DaoError::RecipeFormatError(format!("{:#?}", error.error))
-    }
-}
-
 impl Dao {
     pub async fn new() -> Option<Self> {
         match get_db_handler().await
@@ -62,8 +43,8 @@ impl Dao {
         }
     }
 
-    /// add recipe as it is, but ignores id
-    pub async fn add_one_recipe(&self, recipe: Recipe) -> Result<Bson, DaoError> {
+    /// ignores id
+    pub async fn insert_recipe(&self, recipe: Recipe) -> Result<Bson, DaoError> {
         match self.database.collection(RECIPE_COLLECTION).insert_one(recipe.clone().into(), None).await {
             Ok(result) => {
                 info!("Added recipe in db. id={:?}", result.inserted_id);
@@ -76,7 +57,7 @@ impl Dao {
         }
     }
 
-    pub async fn update_one_recipe_ignore_image(&self, id: ObjectId, recipe: Recipe) -> Result<(), DaoError> {
+    pub async fn update_recipe_ignore_image(&self, id: ObjectId, recipe: Recipe) -> Result<(), DaoError> {
         let query = object_id_into_doc(id.clone());
 
         let mut recipe = Document::from(recipe);
@@ -250,6 +231,25 @@ impl Dao {
     }
 }
 
+
+impl From<Error> for DaoError {
+    fn from(error: Error) -> Self {
+        DaoError::DatabaseError(format!("{:#?}", error))
+    }
+}
+
+impl From<ValueAccessError> for DaoError {
+    fn from(error: ValueAccessError) -> Self {
+        DaoError::DatabaseError(format!("{:#?}", error))
+    }
+}
+
+impl From<RecipeFormatError> for DaoError {
+    fn from(error: RecipeFormatError) -> Self {
+        DaoError::RecipeFormatError(format!("{:#?}", error.error))
+    }
+}
+
 fn object_id_into_doc(id: ObjectId) -> Document {
     doc! {"_id": Bson::ObjectId(id)}
 }
@@ -391,7 +391,7 @@ pub mod dao_tests {
         let dao = before().await;
         let recipe = create_one_recipe_without_image();
 
-        let result = dao.add_one_recipe(recipe).await;
+        let result = dao.insert_recipe(recipe).await;
         assert!(result.is_ok());
         result.unwrap().as_object_id().unwrap().timestamp().date();
 
@@ -404,7 +404,7 @@ pub mod dao_tests {
         let dao = before().await;
         let recipe = create_one_recipe_with_image();
 
-        let result = dao.add_one_recipe(recipe).await;
+        let result = dao.insert_recipe(recipe).await;
         assert!(result.is_ok());
         result.unwrap().as_object_id().unwrap().timestamp().date();
 
@@ -417,12 +417,12 @@ pub mod dao_tests {
         let dao = before().await;
         let mut recipe = create_one_recipe_with_image();
 
-        let result = dao.add_one_recipe(recipe.clone()).await.unwrap();
+        let result = dao.insert_recipe(recipe.clone()).await.unwrap();
         let recipe_id = result.as_object_id().unwrap().to_owned();
         recipe.title = "new".to_string();
         recipe.image_base64 = Some("new_image".to_string());
 
-        let result = dao.update_one_recipe_ignore_image(recipe_id.clone(), recipe.clone()).await;
+        let result = dao.update_recipe_ignore_image(recipe_id.clone(), recipe.clone()).await;
         assert!(result.is_ok());
 
         let result = dao.get_one_recipe_without_image(recipe_id.clone()).await;
@@ -432,7 +432,7 @@ pub mod dao_tests {
         let result = dao.get_one_recipe_image(recipe_id).await;
         assert_eq!(result.unwrap().as_str(), "image");
 
-        let result = dao.update_one_recipe_ignore_image(ObjectId::new(), recipe.clone()).await;
+        let result = dao.update_recipe_ignore_image(ObjectId::new(), recipe.clone()).await;
         assert_eq!(result.err().unwrap(), DaoError::DocumentNotFound);
 
         cleanup_after(dao).await;
@@ -445,7 +445,7 @@ pub mod dao_tests {
         let dao = before().await;
         let recipe = create_one_recipe_with_image();
 
-        let result = dao.add_one_recipe(recipe.clone()).await.unwrap();
+        let result = dao.insert_recipe(recipe.clone()).await.unwrap();
         let recipe_id = result.as_object_id().unwrap().to_owned();
         let result = dao.update_one_recipe_image(recipe_id.clone(), Some("new_image".to_string())).await;
         assert!(result.is_ok());
@@ -454,6 +454,26 @@ pub mod dao_tests {
         assert_eq!(result.unwrap(), "new_image".to_string());
 
         let result = dao.update_one_recipe_image(recipe_id.clone(),None).await;
+        assert!(result.is_ok());
+
+        let result = dao.get_one_recipe_image(recipe_id.clone()).await;
+        assert_eq!(result.err().unwrap(), DaoError::DocumentNotFound);
+
+        cleanup_after(dao).await;
+    }
+
+    #[actix_rt::test]
+    #[serial]
+    async fn delete_one_recipe_image_test() {
+        let dao = before().await;
+        let recipe = create_one_recipe_with_image();
+
+        let result = dao.insert_recipe(recipe.clone()).await.unwrap();
+        let recipe_id = result.as_object_id().unwrap().to_owned();
+        let result = dao.get_one_recipe_image(recipe_id.clone()).await;
+        assert_eq!(result.unwrap(), "image".to_string());
+
+        let result = dao.delete_one_recipe(recipe_id.clone()).await;
         assert!(result.is_ok());
 
         let result = dao.get_one_recipe_image(recipe_id.clone()).await;
@@ -485,7 +505,7 @@ pub mod dao_tests {
     async fn get_one_recipe_without_image() {
         let dao = before().await;
         let recipe = create_one_recipe_with_image();
-        let result = dao.add_one_recipe(recipe).await.unwrap();
+        let result = dao.insert_recipe(recipe).await.unwrap();
 
         let inserted_oid = result.as_object_id().unwrap().to_owned();
         let recipe_found = dao
@@ -507,7 +527,7 @@ pub mod dao_tests {
     async fn get_one_recipe_image() {
         let dao = before().await;
         let recipe = create_one_recipe_with_image();
-        let result = dao.add_one_recipe(recipe).await.unwrap();
+        let result = dao.insert_recipe(recipe).await.unwrap();
 
         let inserted_oid = result.as_object_id().unwrap().to_owned();
         let image = dao
@@ -528,7 +548,7 @@ pub mod dao_tests {
     async fn delete_one_recipe_test() {
         let dao = before().await;
         let recipe = create_one_recipe_without_image();
-        let result = dao.add_one_recipe(recipe.clone()).await.unwrap();
+        let result = dao.insert_recipe(recipe.clone()).await.unwrap();
         let recipe_id = result.as_object_id().unwrap().to_owned();
 
         let result = dao.delete_one_recipe(recipe_id.clone()).await;
