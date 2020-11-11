@@ -6,12 +6,14 @@ extern crate mongodb;
 extern crate simplelog;
 
 use std::fs::File;
+use std::io::Bytes;
 
 use actix_web::{App, error, HttpResponse, HttpServer, web};
 use actix_web::middleware::Logger;
 use simplelog::{CombinedLogger, Config, LevelFilter, TerminalMode, TermLogger, WriteLogger};
 
 use crate::dao::Dao;
+use crate::model::ssl;
 use crate::recipe_routes::RecipeRoutes;
 
 mod model;
@@ -23,6 +25,8 @@ mod recipe_routes;
 #[actix_rt::main]
 async fn main() -> std::io::Result<()> {
     init_logger();
+
+    let config = ssl::init();
 
     let dao = Dao::new().await.unwrap();
 
@@ -38,19 +42,20 @@ async fn main() -> std::io::Result<()> {
                     .max_age(3600)
                     .finish())
             .data(dao.clone())
-            .app_data(web::JsonConfig::default().limit(1048576)
-                .error_handler(|err, _req| {
-                    error!("={:#?}", err);
+            .data(web::PayloadConfig::new(5 << 20))
+            .app_data(web::JsonConfig::default().limit(5 << 20)
+                .error_handler(|err, req| {
+                    error!("Error={:#?}", err);
                     error::InternalError::from_response(err, HttpResponse::BadRequest().finish()).into()
                 }))
             .service(
                 web::scope("/api/v1")
                     .service(web::resource("/recipes")
                         .route(web::get().to(RecipeRoutes::get_many_recipes))
-                        .route(web::post().to(RecipeRoutes::add_one_recipe))
                         .route(web::post().to(RecipeRoutes::add_many_recipes))
                     )
                     .service(web::resource("/recipes/{id}")
+                        .route(web::post().to(RecipeRoutes::add_one_recipe))
                         .route(web::get().to(RecipeRoutes::get_one_recipe_without_image))
                         .route(web::put().to(RecipeRoutes::update_one_recipe_without_image))
                         .route(web::delete().to(RecipeRoutes::delete_one_recipe))
@@ -61,13 +66,14 @@ async fn main() -> std::io::Result<()> {
                         .route(web::delete().to(RecipeRoutes::delete_one_recipe_image))
                     )
             )
-    }).bind(addr)?.run().await
+    }).bind_rustls(addr, config)?.run().await
+
+    // }).bind(addr, config)?.run().await
 }
 
 
 fn init_logger() {
     std::env::set_var("RUST_LOG", "actix_web=trace");
-
     CombinedLogger::init(
         vec![
             TermLogger::new(LevelFilter::Info,

@@ -7,7 +7,7 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-actix-web = "3.0.2"
+actix-web =  { version = "3.0.2", features = ["rustls"] }
 actix-cors = "0.4.0"
 actix-rt = "1.0"
 mongodb = "1.1.0"
@@ -18,6 +18,7 @@ bson = "1.1.0"
 simplelog = "0.8.0"
 log = "0.4.11"
 base64 = "0.13.0"
+rustls = "0.18.1"
 
 [dev-dependencies]
 serial_test = "*"

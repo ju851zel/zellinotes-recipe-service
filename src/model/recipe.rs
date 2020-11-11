@@ -41,7 +41,7 @@ pub struct Recipe {
     pub title: String,
     pub tags: Vec<String>,
     #[serde(rename = "image")]
-    #[serde(skip_deserializing)]
+    // #[serde(skip_deserializing)]
     pub image_base64: Option<String>,
     pub instructions: Vec<String>,
     #[serde(rename = "defaultServings")]
