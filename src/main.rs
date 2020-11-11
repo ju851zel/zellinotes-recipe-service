@@ -13,7 +13,7 @@ use actix_web::middleware::Logger;
 use simplelog::{CombinedLogger, Config, LevelFilter, TerminalMode, TermLogger, WriteLogger};
 
 use crate::dao::Dao;
-use crate::model::ssl;
+mod ssl;
 use crate::recipe_routes::RecipeRoutes;
 
 mod model;
